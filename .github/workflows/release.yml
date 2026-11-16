@@ -1,0 +1,60 @@
+# Publishes a plugin release for the Obsidian community directory.
+#
+# Releases go through a pull request from dev into main. When it merges, this job reads the version
+# from manifest.json. If no release with that tag exists yet, it checks the version files, runs the
+# tests, builds, and publishes release "x.y.z" (no "v") with main.js, manifest.json and styles.css,
+# which is what Obsidian installs. Merges that don't bump the version publish nothing.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is this version already released?
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(node -p "require('./manifest.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "$v" >/dev/null 2>&1; then
+            echo "Release $v already exists; nothing to publish."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Version must match package.json and versions.json
+        if: steps.version.outputs.new == 'true'
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          p=$(node -p "require('./package.json').version")
+          in_versions=$(node -p "Object.keys(require('./versions.json')).includes('$v')")
+          echo "manifest=$v package=$p versions.json has it=$in_versions"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ "$v" = "$p" ] && [ "$in_versions" = "true" ]
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.new == 'true'
+        with:
+          node-version: 24
+          cache: npm
+      - if: steps.version.outputs.new == 'true'
+        run: npm ci && npm test && npm run build
+      - name: Publish release
+        if: steps.version.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          gh release create "$v" main.js manifest.json styles.css \
+            --target "$GITHUB_SHA" --title "$v" --notes-file RELEASE_NOTES.md

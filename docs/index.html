@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cap-sort: screen recorder for Obsidian</title>
+<meta name="description" content="Record a screen, one window or a region from inside Obsidian, with or without the cursor, plus mic and system audio. Saved as WebM in your vault.">
+<link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ---------- Brand tokens ---------- */
+:root {
+	--ink: #17151f; --ink-2: #4a4757; --ink-3: #77748a;
+	--paper: #fafaf9; --paper-2: #f1f0ee; --line: #e3e1dd;
+	--rec: #e5484d; --rec-soft: #fde8e8; --focus: #2f6fed;
+	--radius: 10px; --gutter: clamp(16px, 4vw, 40px);
+	--sans: "Geist", Inter, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+	--mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+	/* Obsidian-like tokens, used only inside the replica */
+	--o-bg: #ffffff; --o-bg-2: #f6f6f6; --o-bg-3: #ececec; --o-border: #e0e0e0; --o-text: #222; --o-muted: #6b6b6b;
+	--o-accent: #8a5cf5; --o-accent-text: #fff; --o-hover: rgba(0,0,0,.06);
+	color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--ink: #ededf0; --ink-2: #c3c1cc; --ink-3: #8d8a9b;
+		--paper: #121117; --paper-2: #1b1a22; --line: #2c2a35;
+		--rec-soft: #3a1c1f; --focus: #7aa2ff;
+		--o-bg: #1e1e1e; --o-bg-2: #262626; --o-bg-3: #303030; --o-border: #3a3a3a; --o-text: #dcddde; --o-muted: #999;
+		--o-hover: rgba(255,255,255,.07);
+		color-scheme: dark;
+	}
+}
+:root[data-theme="dark"] {
+	--ink: #ededf0; --ink-2: #c3c1cc; --ink-3: #8d8a9b;
+	--paper: #121117; --paper-2: #1b1a22; --line: #2c2a35;
+	--rec-soft: #3a1c1f; --focus: #7aa2ff;
+	--o-bg: #1e1e1e; --o-bg-2: #262626; --o-bg-3: #303030; --o-border: #3a3a3a; --o-text: #dcddde; --o-muted: #999;
+	--o-hover: rgba(255,255,255,.07);
+	color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.6 var(--sans); }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+code, .mono { font-family: var(--mono); font-size: .92em; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--gutter); }
+h1, h2, h3 { line-height: 1.15; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+h2 { font-size: clamp(26px, 3.2vw, 34px); }
+h3 { font-size: 17px; letter-spacing: -0.01em; }
+p { margin: 0; }
+.muted { color: var(--ink-2); }
+.btn {
+	display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px;
+	border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink);
+	font: 500 15px var(--sans); text-decoration: none; cursor: pointer;
+}
+.btn:hover { background: var(--paper-2); }
+.btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn.primary:hover { opacity: .9; }
+.btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+/* ---------- Header ---------- */
+header { border-bottom: 1px solid var(--line); }
+.bar { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 16px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 19px; letter-spacing: -0.02em; text-decoration: none; }
+.brand img { width: 30px; height: 30px; }
+.bar nav { display: flex; align-items: center; gap: 4px; }
+.bar nav a { padding: 10px 12px; border-radius: 8px; color: var(--ink-2); text-decoration: none; font-size: 15px; }
+.bar nav a:hover { color: var(--ink); background: var(--paper-2); }
+.theme-btn { width: 44px; height: 44px; display: inline-grid; place-items: center; border: 0; background: transparent; color: var(--ink-2); border-radius: 8px; cursor: pointer; }
+.theme-btn:hover { background: var(--paper-2); color: var(--ink); }
+
+/* ---------- Hero ---------- */
+.hero { padding-top: clamp(48px, 8vw, 88px); padding-bottom: 32px; }
+.hero h1 { font-size: clamp(36px, 6vw, 62px); max-width: 15ch; }
+.hero .lede { margin-top: 18px; font-size: clamp(17px, 2vw, 20px); max-width: 58ch; color: var(--ink-2); }
+.hero .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 28px; color: var(--ink-3); font-size: 14px; }
+.facts span { display: inline-flex; align-items: center; gap: 8px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); display: inline-block; }
+
+/* ---------- Demo section ---------- */
+section { padding: clamp(40px, 7vw, 80px) 0; }
+.section-head { display: grid; gap: 10px; margin-bottom: 28px; max-width: 64ch; }
+.demo-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+
+/* Replica of Obsidian + the plugin */
+.app {
+	position: relative; overflow: hidden; border-radius: 12px; border: 1px solid var(--o-border);
+	background: var(--o-bg); color: var(--o-text); font: 14px/1.5 -apple-system, "Segoe UI", Inter, sans-serif;
+	box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 32px rgba(0,0,0,.08);
+	display: grid; grid-template-columns: 48px minmax(0, 1fr); grid-template-rows: 36px minmax(0, 1fr) 28px; height: 620px;
+}
+.titlebar { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--o-bg-2); border-bottom: 1px solid var(--o-border); font-size: 12px; color: var(--o-muted); }
+.lights { display: flex; gap: 6px; margin-right: 8px; }
+.lights i { width: 11px; height: 11px; border-radius: 50%; background: var(--o-bg-3); border: 1px solid var(--o-border); }
+.ribbon { background: var(--o-bg-2); border-right: 1px solid var(--o-border); display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
+.rb { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--o-muted); cursor: default; }
+.rb svg { width: 18px; height: 18px; }
+.rb.cam { cursor: pointer; color: var(--o-text); position: relative; }
+.rb.cam:hover { background: var(--o-hover); }
+.rb.cam.is-recording { color: var(--rec); }
+.rb.cam.pulse::after { content: ""; position: absolute; inset: -3px; border-radius: 8px; border: 2px solid var(--rec); animation: ring 1.6s ease-out infinite; }
+@keyframes ring { from { opacity: .9; transform: scale(.9); } to { opacity: 0; transform: scale(1.25); } }
+.editor { overflow: auto; padding: 28px clamp(16px, 4vw, 48px); }
+.editor h4 { margin: 0 0 14px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+.editor p { margin: 0 0 10px; color: var(--o-text); }
+.video-embed { margin-top: 4px; border-radius: 6px; overflow: hidden; background: #000; }
+.video-embed video, .video-embed canvas { display: block; width: 100%; height: auto; max-height: 340px; object-fit: contain; background: #000; }
+.thumb > img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* A plain <img> would start the browser's own image drag and swallow the region drag. */
+.thumb > img { -webkit-user-drag: none; user-select: none; pointer-events: none; }
+.thumb .shot { position: absolute; overflow: hidden; border-radius: 3px; background: #000; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.thumb .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.editor .caret { display: inline-block; width: 1px; height: 1.1em; background: var(--o-text); vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.statusbar { grid-column: 1 / -1; display: flex; justify-content: flex-end; align-items: center; gap: 16px; padding: 0 12px; background: var(--o-bg-2); border-top: 1px solid var(--o-border); font-size: 12px; color: var(--o-muted); }
+.rec-status { display: none; align-items: center; gap: 6px; color: var(--rec); font-variant-numeric: tabular-nums; border: 0; background: transparent; font: inherit; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.rec-status:hover { background: var(--o-hover); }
+.rec-status.on { display: inline-flex; }
+.rec-status .dot { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.toast { position: absolute; right: 12px; top: 48px; z-index: 5; max-width: 300px; padding: 10px 14px; border-radius: 8px; background: var(--o-bg); border: 1px solid var(--o-border); box-shadow: 0 6px 20px rgba(0,0,0,.15); font-size: 13px; opacity: 0; transform: translateY(-6px); transition: opacity .2s, transform .2s; pointer-events: none; }
+.toast.show { opacity: 1; transform: none; }
+
+/* Modal (the plugin's picker) */
+.scrim { position: absolute; inset: 36px 0 28px 0; background: rgba(0,0,0,.35); display: none; align-items: flex-start; justify-content: center; padding: 18px 12px; z-index: 4; overflow: auto; }
+.scrim.open { display: flex; }
+.modal { width: min(680px, 100%); background: var(--o-bg); border: 1px solid var(--o-border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,.25); padding: 18px 20px; position: relative; }
+.modal h5 { margin: 0 0 12px; font-size: 17px; font-weight: 700; }
+.x { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--o-muted); cursor: pointer; display: grid; place-items: center; }
+.x:hover { background: var(--o-hover); }
+.ob { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 12px; border-radius: 6px; border: 0; background: var(--o-bg-3); color: var(--o-text); font: 500 13px/1 -apple-system, "Segoe UI", Inter, sans-serif; cursor: pointer; }
+.ob:hover { filter: brightness(.97); }
+.ob svg { width: 15px; height: 15px; flex-shrink: 0; }
+.ob.cta { background: var(--o-accent); color: var(--o-accent-text); }
+.ob.cta svg { color: #fff; }
+.ob:disabled { opacity: .5; cursor: not-allowed; }
+.tabs { display: inline-flex; gap: 2px; padding: 2px; background: var(--o-hover); border-radius: 8px; margin-bottom: 12px; }
+.tabs .ob { background: transparent; color: var(--o-muted); }
+.tabs .ob.active { background: var(--o-bg); color: var(--o-text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.pbody { min-height: 170px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 10px; }
+.card { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 8px; border: 1px solid var(--o-border); background: var(--o-bg); color: var(--o-text); text-align: left; cursor: pointer; font: 12px -apple-system, "Segoe UI", Inter, sans-serif; }
+.card:hover { background: var(--o-bg-2); }
+.card.sel { border-color: var(--o-accent); box-shadow: 0 0 0 1px var(--o-accent); }
+.card span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumb { aspect-ratio: 16 / 10; border-radius: 5px; background: var(--o-bg-3); position: relative; overflow: hidden; }
+.thumb i { position: absolute; border-radius: 3px; background: var(--o-bg); border: 1px solid var(--o-border); }
+.thumb i::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--o-bg-2); border-bottom: 1px solid var(--o-border); }
+.thumb.dark-app i { background: #1f1f24; }
+.thumb .line { position: absolute; height: 2px; border-radius: 1px; background: var(--o-border); }
+.back { background: transparent; color: var(--o-accent); padding-left: 0; margin-bottom: 8px; }
+.region { position: relative; display: block; width: 100%; max-width: 360px; aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden; cursor: crosshair; touch-action: none; user-select: none; }
+.region .thumb { position: absolute; inset: 0; border-radius: 0; }
+.rect { position: absolute; border: 2px solid var(--o-accent); box-shadow: 0 0 0 9999px rgba(0,0,0,.45); display: none; pointer-events: none; }
+.rect.on { display: block; }
+.opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--o-border); }
+.tog { background: transparent; border: 1px solid var(--o-border); color: var(--o-muted); }
+.tog.on { background: var(--o-hover); border-color: transparent; color: var(--o-text); }
+.tog.on svg { color: var(--o-accent); }
+.helper { display: none; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 8px; padding: 8px 12px; border-radius: 6px; background: var(--o-bg-2); font-size: 12px; color: var(--o-muted); }
+.helper.on { display: flex; }
+.pfoot { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--o-border); }
+.hint { font-size: 12px; color: var(--o-muted); margin-bottom: 8px; min-height: 18px; }
+.pbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.plinks { display: flex; gap: 14px; font-size: 12px; color: var(--o-muted); }
+.plinks a { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
+.plinks a:hover { color: var(--o-text); }
+.plinks svg { width: 14px; height: 14px; }
+.rec-ico { color: var(--rec); }
+.ob.cta .rec-ico { color: #fff; }
+
+/* Explain panel */
+.explain { position: sticky; top: 16px; display: grid; gap: 16px; }
+.panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; background: var(--paper); }
+.panel .eyebrow { font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.panel p { color: var(--ink-2); font-size: 15px; }
+.panel p + p { margin-top: 8px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 6px 8px; border-radius: 8px; color: var(--ink-3); font-size: 14px; }
+.steps li::before { content: counter(s); width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font: 500 12px var(--mono); border: 1px solid var(--line); }
+.steps li.done { color: var(--ink-2); }
+.steps li.done::before { content: "✓"; border-color: transparent; background: var(--paper-2); }
+.steps li.now { color: var(--ink); background: var(--paper-2); font-weight: 500; }
+.steps li.now::before { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.reset { justify-self: start; }
+
+/* Pipeline */
+.pipe { margin-top: 28px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.node { padding: 14px 14px 16px; border-right: 1px solid var(--line); position: relative; background: var(--paper); transition: background .2s; min-width: 0; }
+.node:last-child { border-right: 0; }
+.node .k { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.node .v { margin-top: 6px; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+.node .d { margin-top: 4px; font-size: 13px; color: var(--ink-3); }
+.node.lit { background: var(--paper-2); }
+.node.lit .k { color: var(--rec); }
+.node.off .v, .node.off .d { color: var(--ink-3); text-decoration: line-through; text-decoration-thickness: 1px; }
+.node:not(:last-child)::after { content: ""; position: absolute; right: -7px; top: 50%; width: 12px; height: 12px; background: inherit; border-top: 1px solid var(--line); border-right: 1px solid var(--line); transform: translateY(-50%) rotate(45deg); z-index: 1; }
+
+/* Results / facts */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 32px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { text-align: left; padding: 10px 12px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table-wrap { overflow-x: auto; }
+.note { margin-top: 14px; font-size: 14px; color: var(--ink-3); }
+ol.install { margin: 16px 0 0; padding-left: 20px; display: grid; gap: 10px; color: var(--ink-2); }
+pre { margin: 16px 0 0; padding: 14px 16px; border-radius: var(--radius); background: var(--paper-2); overflow-x: auto; font: 13px/1.6 var(--mono); }
+.split { border-top: 1px solid var(--line); }
+footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--ink-3); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+footer nav { display: flex; gap: 6px; flex-wrap: wrap; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 980px) {
+	.demo-grid { grid-template-columns: 1fr; }
+	.explain { position: static; grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 760px) {
+	.pipe { grid-template-columns: 1fr 1fr; }
+	.node { border-bottom: 1px solid var(--line); }
+	.node::after { display: none; }
+	.explain { grid-template-columns: 1fr; }
+	.bar nav a.hide-sm { display: none; }
+}
+@media (max-width: 560px) {
+	.app { grid-template-columns: 40px minmax(0, 1fr); height: 640px; }
+	.rb { width: 32px; height: 32px; }
+	.tabs { display: flex; width: 100%; }
+	.tabs .ob { flex: 1; justify-content: center; }
+	.opts .ob { flex: 1 1 auto; justify-content: center; }
+	.pbar { flex-direction: column-reverse; align-items: stretch; }
+	.pbar .cta { justify-content: center; min-height: 40px; }
+	.plinks { justify-content: center; }
+	.statusbar .hide-sm { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+	<!-- Lucide icons (ISC licence), the same set Obsidian uses -->
+	<symbol id="i-video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></symbol>
+	<symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></symbol>
+	<symbol id="i-app-window" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/></symbol>
+	<symbol id="i-square-dashed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></symbol>
+	<symbol id="i-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/></symbol>
+	<symbol id="i-pointer-ban" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.034 2.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.944L8.204 7.545a1 1 0 0 0-.66.66l-1.066 3.443a.5.5 0 0 1-.944.033z"/><circle cx="16" cy="16" r="6"/><path d="m11.8 11.8 8.4 8.4"/></symbol>
+	<symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></symbol>
+	<symbol id="i-mic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></symbol>
+	<symbol id="i-volume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></symbol>
+	<symbol id="i-volume-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></symbol>
+	<symbol id="i-circle-dot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/></symbol>
+	<symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+	<symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+	<symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+	<symbol id="i-github" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></symbol>
+	<symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
+	<symbol id="i-rotate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+	<symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+	<symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+	<symbol id="i-graph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M7.5 7.5 10.5 16"/><path d="M16.5 7.5 13.5 16"/></symbol>
+	<symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+	<symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+</svg>
+
+<header>
+	<div class="wrap bar">
+		<a class="brand" href="#top" aria-label="cap-sort home"><img src="assets/mark.svg" alt="" id="brand-mark" width="30" height="30">cap-sort</a>
+		<nav aria-label="Main">
+			<a href="#demo" class="hide-sm">Try it</a>
+			<a href="#how" class="hide-sm">How it works</a>
+			<a href="#install" class="hide-sm">Install</a>
+			<a href="https://github.com/th3r-dev/cap-sort" aria-label="cap-sort on GitHub"><svg width="20" height="20" aria-hidden="true"><use href="#i-github"/></svg></a>
+			<button class="theme-btn" id="theme" type="button" aria-label="Switch to dark theme"><svg width="20" height="20" aria-hidden="true"><use href="#i-moon"/></svg></button>
+		</nav>
+	</div>
+</header>
+
+<main id="top">
+	<div class="wrap hero">
+		<h1>Screen recording inside Obsidian</h1>
+		<p class="lede">Record a whole screen, one app window, or a region you draw. Your mic and system audio come along, the cursor can be left out, and the video lands in your vault as WebM, embedded in the note you're writing.</p>
+		<div class="ctas">
+			<a class="btn primary" href="#demo"><svg aria-hidden="true"><use href="#i-circle-dot"/></svg>Try the recorder</a>
+			<a class="btn" href="https://github.com/th3r-dev/cap-sort"><svg aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
+		</div>
+		<div class="facts">
+			<span><i class="dot"></i>About 7.5–9.5 MB per minute of busy screen</span>
+			<span>AV1 + Opus in WebM</span>
+			<span>macOS, Windows, Linux</span>
+		</div>
+	</div>
+
+	<section id="demo" aria-labelledby="demo-h">
+		<div class="wrap">
+			<div class="section-head">
+				<h2 id="demo-h">Try it right here</h2>
+				<p class="muted">This is a working copy of the plugin's interface, running in your browser. Click the camera in the left ribbon and go through a recording. Nothing is actually captured. The steps panel explains what the real plugin does at each step, and the pipeline under the demo shows the path your settings take.</p>
+			</div>
+
+			<div class="demo-grid">
+				<div class="app" id="app" aria-label="Interactive demo of cap-sort inside Obsidian">
+					<div class="titlebar"><div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>Meeting notes · My vault</div>
+					<div class="ribbon">
+						<button class="rb cam pulse" id="cam" type="button" aria-label="Start recording" title="Start recording"><svg aria-hidden="true"><use href="#i-video"/></svg></button>
+						<span class="rb" aria-hidden="true"><svg><use href="#i-file"/></svg></span>
+						<span class="rb" aria-hidden="true"><svg><use href="#i-search"/></svg></span>
+						<span class="rb" aria-hidden="true"><svg><use href="#i-graph"/></svg></span>
+					</div>
+					<div class="editor" id="editor">
+						<h4>Meeting notes</h4>
+						<p>Walkthrough of the new export flow for the team:</p>
+						<div id="embed-slot"><span class="caret" aria-hidden="true"></span></div>
+					</div>
+					<div class="statusbar">
+						<button class="rec-status" id="rec-status" type="button" aria-label="Stop recording"><i class="dot"></i><span id="rec-time">REC 00:00</span></button>
+						<span class="hide-sm">0 backlinks</span><span class="hide-sm">12 words</span>
+					</div>
+					<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+					<div class="scrim" id="scrim">
+						<div class="modal" role="dialog" aria-modal="true" aria-labelledby="pick-title">
+							<h5 id="pick-title">Record screen</h5>
+							<button class="x" id="close" type="button" aria-label="Close"><svg width="18" height="18" aria-hidden="true"><use href="#i-x"/></svg></button>
+							<div class="tabs" role="tablist" aria-label="What to record">
+								<button class="ob" role="tab" data-tab="screen" aria-label="Screen"><svg aria-hidden="true"><use href="#i-monitor"/></svg>Screen</button>
+								<button class="ob" role="tab" data-tab="window" aria-label="Window"><svg aria-hidden="true"><use href="#i-app-window"/></svg>Window</button>
+								<button class="ob" role="tab" data-tab="region" aria-label="Region"><svg aria-hidden="true"><use href="#i-square-dashed"/></svg>Region</button>
+							</div>
+							<div class="pbody" id="pbody" role="tabpanel"></div>
+							<div class="opts" role="group" aria-label="Recording options">
+								<button class="ob tog" data-opt="cursor" type="button"></button>
+								<button class="ob tog" data-opt="mic" type="button"></button>
+								<button class="ob tog" data-opt="sys" type="button"></button>
+							</div>
+							<div class="helper" id="helper">
+								<span>Hiding the cursor needs the cap-sort helper (about 1 MB, downloaded from GitHub).</span>
+								<button class="ob" id="dl" type="button"><svg aria-hidden="true"><use href="#i-download"/></svg><span>Download helper</span></button>
+							</div>
+							<div class="pfoot">
+								<div class="hint" id="hint" aria-live="polite"></div>
+								<div class="pbar">
+									<div class="plinks">
+										<a href="https://github.com/th3r-dev/cap-sort"><svg aria-hidden="true"><use href="#i-github"/></svg>GitHub</a>
+										<a href="https://github.com/sponsors/th3r-dev"><svg aria-hidden="true"><use href="#i-heart"/></svg>Sponsor</a>
+									</div>
+									<button class="ob cta" id="start" type="button"><svg class="rec-ico" aria-hidden="true"><use href="#i-circle-dot"/></svg>Start recording</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<aside class="explain" aria-label="What the plugin is doing">
+					<div class="panel">
+						<div class="eyebrow"><i class="dot"></i><span id="ex-k">Step 1</span></div>
+						<div id="ex-body"></div>
+					</div>
+					<div class="panel">
+						<ol class="steps" id="steps">
+							<li>Open the picker</li>
+							<li>Choose what to record</li>
+							<li>Set cursor and audio</li>
+							<li>Record</li>
+							<li>Saved and embedded</li>
+						</ol>
+						<button class="btn reset" id="reset" type="button" style="margin-top:12px"><svg aria-hidden="true"><use href="#i-rotate"/></svg>Start over</button>
+					</div>
+				</aside>
+			</div>
+
+			<div class="pipe" id="how" aria-label="Recording pipeline for the current settings">
+				<div class="node" data-n="src"><div class="k">Source</div><div class="v" id="p-src">Screen</div><div class="d">desktopCapturer</div></div>
+				<div class="node" data-n="vid"><div class="k">Video</div><div class="v" id="p-vid">Chromium</div><div class="d" id="p-vid-d">cursor drawn</div></div>
+				<div class="node" data-n="crop"><div class="k">Crop</div><div class="v" id="p-crop">Whole frame</div><div class="d" id="p-crop-d">no crop</div></div>
+				<div class="node" data-n="aud"><div class="k">Audio</div><div class="v" id="p-aud">Mic + system</div><div class="d">mixed, one track</div></div>
+				<div class="node" data-n="enc"><div class="k">Encode</div><div class="v">AV1 + Opus</div><div class="d mono" id="p-enc">≤1.73 Mbps</div></div>
+				<div class="node" data-n="out"><div class="k">Vault</div><div class="v">WebM</div><div class="d">embedded in note</div></div>
+			</div>
+		</div>
+	</section>
+
+	<section class="split" aria-labelledby="how-h">
+		<div class="wrap cols">
+			<div>
+				<h2 id="how-h">How it works</h2>
+				<p class="muted" style="margin-top:14px">Obsidian is built on Electron, so the plugin asks Electron's <code>desktopCapturer</code> for your screens and windows and records the one you pick with the browser's <code>MediaRecorder</code>. A region is cut out of each frame before it is encoded, so the file only holds the area you drew.</p>
+				<p class="muted" style="margin-top:12px">Chromium always draws the mouse pointer and ignores requests to leave it out. When you turn the cursor off, cap-sort swaps in a small Rust helper built on <a href="https://github.com/helmerapp/scap">scap</a> that captures frames without it, using ScreenCaptureKit on macOS, Windows.Graphics.Capture on Windows and PipeWire on Linux. Cropping, audio and encoding stay the same either way.</p>
+				<p class="muted" style="margin-top:12px">Video is capped at 1920×1200 and encoded with AV1 when your system supports it (VP9 or VP8 otherwise). The mic and system audio are mixed into one Opus track at 64 kbps.</p>
+			</div>
+			<div>
+				<h3>Measured on macOS 27.3, Obsidian 1.15.1</h3>
+				<div class="table-wrap">
+				<table style="margin-top:12px">
+					<thead><tr><th>Recording</th><th>Path</th><th>Output</th></tr></thead>
+					<tbody>
+						<tr><td>Screen, cursor on</td><td>Chromium</td><td class="num">1920×1200</td></tr>
+						<tr><td>Screen, cursor off</td><td>Rust helper</td><td class="num">1920×1200</td></tr>
+						<tr><td>Window</td><td>both</td><td class="num">1920×1164</td></tr>
+						<tr><td>Region 50%×40%</td><td>both</td><td class="num">960×480</td></tr>
+						<tr><td>The kitten clip above (window, 7.7 s)</td><td>Rust helper</td><td class="num">1920×1080 · 300 KB</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p class="note">A busy full screen averaged 1.0 to 1.3 Mbps, about 7.5 to 9.5 MB per minute. Windows and Linux builds exist but haven't been tested by hand yet.</p>
+			</div>
+		</div>
+	</section>
+
+	<section class="split" id="install" aria-labelledby="install-h">
+		<div class="wrap cols">
+			<div>
+				<h2 id="install-h">Install</h2>
+				<p class="muted" style="margin-top:12px">Needs Obsidian 1.15 or later on macOS, Windows or Linux. Not available on mobile.</p>
+				<h3 style="margin-top:20px">From Community plugins</h3>
+				<ol class="install">
+					<li>Open Settings → Community plugins. If Restricted mode is on, click <strong>Turn on community plugins</strong>.</li>
+					<li>Click <strong>Browse</strong> and search for <strong>cap-sort</strong>.</li>
+					<li>Click <strong>Install</strong>, then <strong>Enable</strong>.</li>
+					<li>On macOS, allow Obsidian under Privacy &amp; Security → Screen Recording when asked.</li>
+				</ol>
+				<p class="note">cap-sort has been submitted to the community directory. Until it's listed, add <code>th3r-dev/cap-sort</code> with <a href="https://github.com/TfTHacker/obsidian42-brat">BRAT</a>, or copy <code>main.js</code>, <code>manifest.json</code> and <code>styles.css</code> from the <a href="https://github.com/th3r-dev/cap-sort/releases/latest">latest release</a> into <code>&lt;vault&gt;/.obsidian/plugins/cap-sort/</code>.</p>
+				<div class="ctas" style="margin-top:16px"><a class="btn primary" href="obsidian://show-plugin?id=cap-sort"><svg aria-hidden="true"><use href="#i-download"/></svg>Open in Obsidian</a><a class="btn" href="https://github.com/th3r-dev/cap-sort/releases/latest"><svg aria-hidden="true"><use href="#i-github"/></svg>Latest release</a></div>
+			</div>
+			<div>
+				<h3>What goes over the network</h3>
+				<p class="muted" style="margin-top:12px">Only the cursor helper, and only after you click <strong>Download helper</strong>. It comes from this project's GitHub releases and is stored in the plugin folder. Recordings never leave your vault.</p>
+				<pre>npm install &amp;&amp; npm run build
+cd helper &amp;&amp; cargo build --release</pre>
+			</div>
+		</div>
+	</section>
+</main>
+
+<footer>
+	<div class="wrap">
+		<span>cap-sort · MIT licence · Icons: Lucide · Demo clip: screen recording of <a href="https://commons.wikimedia.org/wiki/File:Kitten_playing_-_Tokyo_-_Jan_7_2020.webm">"Kitten playing - Tokyo - Jan 7 2020"</a> by Nesnad, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></span>
+		<nav aria-label="Project">
+			<a class="btn" href="https://github.com/th3r-dev/cap-sort"><svg aria-hidden="true"><use href="#i-github"/></svg>GitHub</a>
+			<a class="btn" href="https://github.com/sponsors/th3r-dev"><svg aria-hidden="true" style="color:var(--rec)"><use href="#i-heart"/></svg>Sponsor</a>
+		</nav>
+	</div>
+</footer>
+
+<script>
+(() => {
+	const $ = (s, r = document) => r.querySelector(s);
+	const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+	const icon = (id) => `<svg aria-hidden="true"><use href="#i-${id}"/></svg>`;
+
+	// ---------- theme ----------
+	const themeBtn = $("#theme");
+	const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+	const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+	const paintTheme = () => {
+		const dark = isDark();
+		themeBtn.innerHTML = `<svg width="20" height="20" aria-hidden="true"><use href="#i-${dark ? "sun" : "moon"}"/></svg>`;
+		themeBtn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+		$("#brand-mark").src = dark ? "assets/mark-dark.svg" : "assets/mark.svg";
+	};
+	if (store.get("theme")) document.documentElement.dataset.theme = store.get("theme");
+	themeBtn.onclick = () => { const t = isDark() ? "light" : "dark"; document.documentElement.dataset.theme = t; store.set("theme", t); paintTheme(); };
+	matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintTheme);
+	paintTheme();
+
+	// ---------- the plugin's own numbers (src/util.ts) ----------
+	const videoBitrate = (w, h, fps = 30) => Math.round(Math.min(2.5e6, Math.max(2.5e5, w * h * fps * 0.025)));
+	const SIZES = { screen: [1920, 1200], window: [1920, 1164] };
+	const pad = (n) => String(n).padStart(2, "0");
+	const fileName = (d) => `cap-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.webm`;
+
+	// ---------- sources: each is a scene drawn on a canvas ----------
+	// The same draw code makes the picker thumbnails, the region preview and the recorded video,
+	// so whatever the visitor picks is what ends up in the note.
+	const POSTER = "assets/demo-kitten-poster.jpg";
+	const poster = new Image(); poster.src = POSTER;
+	const clip = Object.assign(document.createElement("video"), { src: "assets/demo-kitten.webm", muted: true, loop: true, playsInline: true, preload: "auto" });
+	const SANS = '-apple-system, "Segoe UI", Inter, sans-serif', MONO = '"Geist Mono", Menlo, Consolas, monospace';
+	const TERM = ["$ npm run build", "> tsc --noEmit && node esbuild.config.mjs production", "", "$ npm test", "✔ scaleRect maps preview pixels to source pixels", "✔ pickMimeType prefers AV1, then VP9, VP8", "✔ FrameParser reassembles frames split at any byte", "ℹ pass 14", "ℹ fail 0", "", "$ cargo build --release", "    Finished `release` profile [optimized]", "$ "];
+	const NOTE = ["Walkthrough of the new export flow:", "1. Open the export menu", "2. Pick CSV or PDF", "3. Check the preview, then save", "", "Open question: keep the filter on export?"];
+
+	/** Reveal `lines` up to `n` characters, typewriter style. */
+	const typed = (lines, n) => { const out = []; for (const l of lines) { if (n <= 0) break; out.push(l.slice(0, n)); n -= l.length + 1; } return out; };
+
+	function chrome(c, x, y, w, h, title, dark) {
+		const th = Math.max(18, h * 0.055);
+		c.fillStyle = dark ? "#1c1c21" : "#ffffff"; c.fillRect(x, y, w, h);
+		c.fillStyle = dark ? "#2b2b33" : "#ececec"; c.fillRect(x, y, w, th);
+		["#ff5f57", "#febc2e", "#28c840"].forEach((col, i) => { c.fillStyle = col; c.beginPath(); c.arc(x + th * (0.7 + i * 0.75), y + th / 2, th * 0.2, 0, 7); c.fill(); });
+		c.fillStyle = dark ? "#a0a0aa" : "#6b6b6b"; c.font = `${th * 0.48}px ${SANS}`; c.textAlign = "center"; c.textBaseline = "middle";
+		c.fillText(title, x + w / 2, y + th / 2); c.textAlign = "left";
+		c.strokeStyle = "rgba(0,0,0,.25)"; c.lineWidth = 1; c.strokeRect(x + .5, y + .5, w - 1, h - 1);
+		return { x, y: y + th, w, h: h - th };
+	}
+	function drawTerm(c, r, t) {
+		const fs = r.w * 0.024, lh = fs * 1.55, pad = fs;
+		c.font = `${fs}px ${MONO}`; c.textBaseline = "top";
+		const total = TERM.join(" ").length, n = (t * 26) % (total + 60);
+		const lines = typed(TERM, n);
+		lines.forEach((l, i) => { c.fillStyle = l.startsWith("$") ? "#7ee787" : l.startsWith("✔") ? "#9ecbff" : "#c9c9d1"; c.fillText(l, r.x + pad, r.y + pad + i * lh); });
+		if (Math.floor(t * 2) % 2 === 0) { const last = lines[lines.length - 1] || ""; c.fillStyle = "#c9c9d1"; c.fillRect(r.x + pad + c.measureText(last).width + 2, r.y + pad + Math.max(0, lines.length - 1) * lh, fs * 0.55, fs * 1.1); }
+	}
+	function drawNotes(c, r, t) {
+		c.fillStyle = "#ffffff"; c.fillRect(r.x, r.y, r.w, r.h);
+		const pad = r.w * 0.07, fs = r.w * 0.032;
+		c.fillStyle = "#222"; c.textBaseline = "top"; c.font = `700 ${fs * 1.6}px ${SANS}`; c.fillText("Meeting notes", r.x + pad, r.y + pad);
+		c.font = `${fs}px ${SANS}`;
+		const lines = typed(NOTE, (t * 16) % (NOTE.join(" ").length + 40));
+		lines.forEach((l, i) => c.fillText(l, r.x + pad, r.y + pad + fs * 2.8 + i * fs * 1.7));
+		if (Math.floor(t * 2) % 2 === 0) { const last = lines[lines.length - 1] || ""; c.fillRect(r.x + pad + c.measureText(last).width + 2, r.y + pad + fs * 2.8 + Math.max(0, lines.length - 1) * fs * 1.7, 2, fs * 1.2); }
+	}
+	function drawKitten(c, r, media) {
+		c.fillStyle = "#000"; c.fillRect(r.x, r.y, r.w, r.h);
+		const mw = media.videoWidth || media.naturalWidth, fullH = media.videoHeight || media.naturalHeight;
+		if (!mw) return;
+		// The clip carries its own thin window title bar at the top; skip it (the poster is already trimmed).
+		const top = media.videoWidth ? Math.round(fullH * 0.025) : 0, mh = fullH - top;
+		const k = Math.max(r.w / mw, r.h / mh), dw = mw * k, dh = mh * k;
+		c.save(); c.beginPath(); c.rect(r.x, r.y, r.w, r.h); c.clip();
+		c.drawImage(media, 0, top, mw, mh, r.x + (r.w - dw) / 2, r.y + (r.h - dh) / 2, dw, dh); c.restore();
+	}
+	function desktop(c, W, H) {
+		c.fillStyle = "#3a3f5c"; c.fillRect(0, 0, W, H);
+		c.fillStyle = "rgba(255,255,255,.16)"; c.fillRect(0, 0, W, H * 0.03);
+	}
+	const win = (c, W, H, [fx, fy, fw, fh], title, dark) => chrome(c, W * fx, H * fy, W * fw, H * fh, title, dark);
+
+	const SOURCES = {
+		screen: [
+			{ name: "Built-in display", w: 1440, h: 900, draw(c, t, m) { desktop(c, 1440, 900); drawNotes(c, win(c, 1440, 900, [.04, .08, .3, .44], "Meeting notes"), t); drawKitten(c, win(c, 1440, 900, [.24, .17, .7, .74], "Kitten playing"), m); } },
+			{ name: "External monitor", w: 1440, h: 900, draw(c, t) { desktop(c, 1440, 900); drawTerm(c, win(c, 1440, 900, [.05, .09, .52, .6], "Terminal", true), t); drawNotes(c, win(c, 1440, 900, [.45, .3, .5, .62], "Meeting notes"), t); } },
+		],
+		window: [
+			{ name: "Kitten playing", w: 1280, h: 740, draw(c, t, m) { drawKitten(c, chrome(c, 0, 0, 1280, 740, "Kitten playing"), m); } },
+			{ name: "Meeting notes · My vault · Obsidian", w: 1200, h: 780, draw(c, t) { drawNotes(c, chrome(c, 0, 0, 1200, 780, "Meeting notes · My vault"), t); } },
+			{ name: "Terminal", w: 1100, h: 680, draw(c, t) { drawTerm(c, chrome(c, 0, 0, 1100, 680, "Terminal — zsh", true), t); } },
+		],
+	};
+
+	/** Draw source `src` at time `t` into canvas `out`, optionally cropped to `crop` (fractions) and with a moving pointer. */
+	const full = document.createElement("canvas");
+	function frame(out, src, t, media, { crop = null, cursor = false } = {}) {
+		full.width = src.w; full.height = src.h;
+		const c = full.getContext("2d");
+		src.draw(c, t, media);
+		if (cursor) {
+			const x = src.w * (0.5 + 0.3 * Math.sin(t * 0.8)), y = src.h * (0.52 + 0.26 * Math.sin(t * 1.3 + 1)), k = src.w / 1100;
+			c.save(); c.translate(x, y); c.scale(k, k);
+			c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 22); c.lineTo(6, 17); c.lineTo(10, 26); c.lineTo(14, 24); c.lineTo(10, 15.5); c.lineTo(17, 15.5); c.closePath();
+			c.fillStyle = "#000"; c.fill(); c.strokeStyle = "#fff"; c.lineWidth = 1.6; c.stroke(); c.restore();
+		}
+		const [sx, sy, sw, sh] = crop ? [crop.fx * src.w, crop.fy * src.h, crop.fw * src.w, crop.fh * src.h] : [0, 0, src.w, src.h];
+		out.getContext("2d").drawImage(full, sx, sy, sw, sh, 0, 0, out.width, out.height);
+	}
+	function makeThumbs() {
+		for (const src of [...SOURCES.screen, ...SOURCES.window]) {
+			const cv = document.createElement("canvas"); cv.width = 640; cv.height = Math.round(640 * src.h / src.w);
+			frame(cv, src, 7, poster);
+			src.thumb = `<div class="thumb"><img src="${cv.toDataURL("image/jpeg", 0.85)}" alt="" draggable="false"></div>`;
+		}
+	}
+	makeThumbs();
+	poster.decode?.().then(() => { makeThumbs(); if (S.open && !S.picked) showTab(S.tab); }).catch(() => {});
+
+	// ---------- state ----------
+	const S = { open: false, tab: "screen", picked: null, rect: null, cursor: true, mic: true, sys: true, helper: false, rec: false, t0: 0, saved: null };
+	let timer = null;
+
+	const app = $("#app"), cam = $("#cam"), scrim = $("#scrim"), pbody = $("#pbody"), hint = $("#hint"), start = $("#start");
+
+	// ---------- explain panel ----------
+	const EX = {
+		idle: ["Step 1 · Open the picker", `<p>Click the <strong>camera</strong> in the left ribbon. In Obsidian you can also run <strong>cap-sort: Start recording…</strong> from the command palette.</p>`],
+		pick: ["Step 2 · Choose what to record", `<p>cap-sort asks Electron's <code>desktopCapturer</code> for every screen and window and shows their live thumbnails. Pick a <strong>Screen</strong>, a <strong>Window</strong>, or switch to <strong>Region</strong> and drag over part of a screen.</p>`],
+		region: ["Step 2 · Draw the region", `<p>Drag a rectangle over the preview. The plugin converts it from preview pixels to real screen pixels and crops every frame to it, so the file only contains that area.</p>`],
+		helper: ["Step 3 · Cursor off needs the helper", `<p>Chromium always paints the pointer into captures. With the cursor off, the plugin uses a small Rust helper instead. It's downloaded once from GitHub, only when you click the button. (In this demo nothing is downloaded.)</p>`],
+		ready: () => ["Step 3 · Check the options", `<p>${S.cursor ? "Cursor <strong>on</strong>: Chromium captures the video." : "Cursor <strong>off</strong>: the Rust helper captures the video, without the pointer."} ${audioText()}</p><p>Output: <span class="mono">${outSize().join("×")}</span>, AV1 capped at <span class="mono">${(bitrate() / 1e6).toFixed(2)} Mbps</span>. Real screens usually come in lower; a busy full screen measured 1.0 to 1.3 Mbps.</p><p>Press <strong>Start recording</strong>.</p>`],
+		rec: () => ["Step 4 · Recording", `<p>Your browser is recording <strong>${S.picked?.name}</strong> right now. In the plugin, frames go to <code>MediaRecorder</code> as AV1, capped at <span class="mono">${(bitrate() / 1e6).toFixed(2)} Mbps</span>${S.mic || S.sys ? ", audio as Opus at 64 kbps" : ""}. The red timer in the status bar shows you're recording.</p><p>Click the <strong>timer</strong> (or the camera again) to stop.</p>`],
+		saved: () => ["Step 5 · Saved and embedded", `<p>The file is saved as <code>${S.saved}</code> and <code>![[…]]</code> is inserted where your cursor was, so Obsidian shows the player right in the note.</p><p>The video in the note ${S.recorded?.real ? "was just recorded by your browser with <code>MediaRecorder</code>, the API the plugin uses" : "is the live capture (this browser can't record video)"}: <strong>${S.recorded?.name}</strong>${S.recorded?.region ? ", cropped to your region" : ""}, ${S.recorded?.cursor ? "with" : "without"} the pointer. In the demo the screens are drawn stand-ins; the kitten footage is a real cap-sort recording (7.7 s at 1920×1080, 300 KB).</p>`],
+	};
+	const audioText = () => S.mic && S.sys ? "Mic and system audio are mixed into one track." : S.mic ? "Only the mic is recorded." : S.sys ? "Only system audio is recorded." : "No audio.";
+	const outSize = () => {
+		if (S.tab === "region" && S.rect) return [Math.round(S.rect.fw * 1920 / 2) * 2, Math.round(S.rect.fh * 1200 / 2) * 2];
+		return SIZES[S.tab === "window" ? "window" : "screen"];
+	};
+	const bitrate = () => videoBitrate(...outSize());
+
+	function stage() {
+		if (S.saved && !S.open && !S.rec) return "saved";
+		if (S.rec) return "rec";
+		if (!S.open) return "idle";
+		if (!S.picked) return "pick";
+		if (S.tab === "region" && !S.rect) return "region";
+		if (!S.cursor && !S.helper) return "helper";
+		return "ready";
+	}
+	const STEP = { idle: 0, pick: 1, region: 1, helper: 2, ready: 2, rec: 3, saved: 4 };
+
+	function renderExplain() {
+		const st = stage();
+		const [k, body] = typeof EX[st] === "function" ? EX[st]() : EX[st];
+		$("#ex-k").textContent = k;
+		$("#ex-body").innerHTML = body;
+		$$("#steps li").forEach((li, i) => { li.className = i < STEP[st] ? "done" : i === STEP[st] ? "now" : ""; if (st === "saved" && i === 4) li.className = "done"; });
+		cam.classList.toggle("pulse", st === "idle");
+
+		// pipeline
+		const [w, h] = outSize();
+		$("#p-src").textContent = { screen: "Screen", window: "Window", region: "Screen" }[S.tab];
+		$("#p-vid").textContent = S.cursor ? "Chromium" : "Rust helper";
+		$("#p-vid-d").textContent = S.cursor ? "cursor drawn" : "no cursor";
+		$("#p-crop").textContent = S.tab === "region" ? (S.rect ? `${w}×${h}` : "Draw a region") : "Whole frame";
+		$("#p-crop-d").textContent = S.tab === "region" ? "VideoFrame visibleRect" : "no crop";
+		$("#p-aud").textContent = S.mic && S.sys ? "Mic + system" : S.mic ? "Mic" : S.sys ? "System audio" : "None";
+		$("#p-enc").textContent = `≤${(bitrate() / 1e6).toFixed(2)} Mbps`;
+		const lit = { idle: [], pick: ["src"], region: ["src", "crop"], helper: ["src", "vid"], ready: ["src", "vid", "crop", "aud", "enc"], rec: ["src", "vid", "crop", "aud", "enc"], saved: ["out"] }[st];
+		$$(".node").forEach((n) => {
+			n.classList.toggle("lit", lit.includes(n.dataset.n));
+			n.classList.toggle("off", (n.dataset.n === "crop" && S.tab !== "region") || (n.dataset.n === "aud" && !S.mic && !S.sys));
+		});
+	}
+
+	// ---------- picker ----------
+	function openPicker() {
+		S.open = true; S.saved = null;
+		scrim.classList.add("open");
+		showTab(S.tab);
+		$(".tabs .ob.active")?.focus();
+	}
+	function closePicker() { S.open = false; scrim.classList.remove("open"); cam.focus(); render(); }
+
+	function showTab(tab) {
+		S.tab = tab; S.picked = null; S.rect = null;
+		$$(".tabs .ob").forEach((b) => { const on = b.dataset.tab === tab; b.classList.toggle("active", on); b.setAttribute("aria-selected", on); });
+		const list = SOURCES[tab === "window" ? "window" : "screen"];
+		pbody.innerHTML = `<div class="grid">${list.map((s, i) => `<button class="card" type="button" aria-pressed="false" data-i="${i}">${s.thumb}<span>${s.name}</span></button>`).join("")}</div>`;
+		$$(".card", pbody).forEach((c) => c.onclick = () => {
+			$$(".card", pbody).forEach((x) => { x.classList.remove("sel"); x.setAttribute("aria-pressed", "false"); });
+			c.classList.add("sel"); c.setAttribute("aria-pressed", "true");
+			S.picked = list[+c.dataset.i];
+			if (tab === "region") regionEditor();
+			render();
+		});
+		render();
+	}
+
+	function regionEditor() {
+		pbody.innerHTML = `<button class="ob back" type="button">${icon("arrow-left")}Choose another screen</button>
+			<div class="region" id="region" aria-label="Drag to select the area to record">${S.picked.thumb}<div class="rect" id="rect"></div></div>`;
+		$(".back", pbody).onclick = () => showTab("region");
+		const area = $("#region"), box = $("#rect");
+		let st = null;
+		const at = (e) => { const r = area.getBoundingClientRect(); return { x: Math.min(Math.max(e.clientX - r.left, 0), r.width), y: Math.min(Math.max(e.clientY - r.top, 0), r.height), W: r.width, H: r.height }; };
+		area.onpointerdown = (e) => { st = at(e); area.setPointerCapture(e.pointerId); box.classList.add("on"); Object.assign(box.style, { left: st.x + "px", top: st.y + "px", width: 0, height: 0 }); };
+		area.onpointermove = (e) => {
+			if (!st) return;
+			const p = at(e);
+			Object.assign(box.style, { left: Math.min(st.x, p.x) + "px", top: Math.min(st.y, p.y) + "px", width: Math.abs(p.x - st.x) + "px", height: Math.abs(p.y - st.y) + "px" });
+			S._tmp = { fx: Math.min(st.x, p.x) / p.W, fy: Math.min(st.y, p.y) / p.H, fw: Math.abs(p.x - st.x) / p.W, fh: Math.abs(p.y - st.y) / p.H };
+		};
+		area.onpointerup = () => {
+			st = null;
+			S.rect = S._tmp && S._tmp.fw > .03 && S._tmp.fh > .03 ? S._tmp : null;
+			if (!S.rect) box.classList.remove("on");
+			render();
+		};
+	}
+
+	// ---------- toggles ----------
+	const TOG = { cursor: ["Cursor", "pointer", "pointer-ban"], mic: ["Microphone", "mic", "mic-off"], sys: ["System audio", "volume", "volume-x"] };
+	$$(".tog").forEach((b) => b.onclick = () => { S[b.dataset.opt] = !S[b.dataset.opt]; render(); });
+	$("#dl").onclick = (e) => {
+		const b = e.currentTarget; b.disabled = true; b.querySelector("span").textContent = "Downloading…";
+		setTimeout(() => { S.helper = true; b.disabled = false; b.querySelector("span").textContent = "Download helper"; toast("Helper installed."); render(); }, 900);
+	};
+
+	// ---------- recording ----------
+	function startRec() {
+		S.open = false; scrim.classList.remove("open");
+		S.rec = true; S.t0 = Date.now();
+		S.capture = capture(S.picked, S.tab === "region" ? S.rect : null, S.cursor);
+		cam.classList.add("is-recording"); cam.setAttribute("aria-label", "Stop recording");
+		$("#rec-status").classList.add("on");
+		const tick = () => { const s = Math.floor((Date.now() - S.t0) / 1000); $("#rec-time").textContent = `REC ${pad(Math.floor(s / 60))}:${pad(s % 60)}`; };
+		tick(); timer = setInterval(tick, 1000);
+		$("#rec-status").focus();
+		render();
+	}
+	/** Record the picked source in this browser: draw it on a canvas, capture the canvas with MediaRecorder. */
+	function capture(src, crop, cursor) {
+		const scale = Math.min(1, 960 / src.w);
+		const out = document.createElement("canvas");
+		out.width = Math.max(2, Math.round((crop ? crop.fw : 1) * src.w * scale / 2) * 2);
+		out.height = Math.max(2, Math.round((crop ? crop.fh : 1) * src.h * scale / 2) * 2);
+		clip.currentTime = 0; clip.play().catch(() => {});
+		const t0 = performance.now() - 4000; // start a few seconds in, so typed text is already on screen
+		const draw = () => frame(out, src, (performance.now() - t0) / 1000, clip.readyState >= 2 ? clip : poster, { crop, cursor });
+		draw();
+		const loop = setInterval(draw, 1000 / 30);
+		const cap = { out, loop, rec: null, chunks: [] };
+		const type = window.MediaRecorder && out.captureStream && ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"].find((t) => MediaRecorder.isTypeSupported(t));
+		if (type) {
+			cap.rec = new MediaRecorder(out.captureStream(30), { mimeType: type, videoBitsPerSecond: 2_000_000 });
+			cap.rec.ondataavailable = (e) => e.data.size && cap.chunks.push(e.data);
+			cap.rec.start(500);
+		}
+		return cap;
+	}
+	let lastUrl = null;
+	async function stopRec() {
+		if (!S.rec) return;
+		clearInterval(timer);
+		S.rec = false;
+		cam.classList.remove("is-recording"); cam.setAttribute("aria-label", "Start recording");
+		$("#rec-status").classList.remove("on");
+		S.saved = `Recordings/${fileName(new Date())}`;
+		const cap = S.capture; S.capture = null;
+		const slot = $("#embed-slot");
+		if (cap.rec) {
+			await new Promise((r) => { cap.rec.onstop = r; cap.rec.stop(); });
+			clearInterval(cap.loop); clip.pause();
+			if (lastUrl) URL.revokeObjectURL(lastUrl);
+			lastUrl = URL.createObjectURL(new Blob(cap.chunks, { type: cap.rec.mimeType }));
+			slot.innerHTML = `<div class="video-embed"><video src="${lastUrl}" controls autoplay muted loop playsinline aria-label="Embedded recording: ${S.saved.split("/")[1]}"></video></div>`;
+		} else {
+			// No MediaRecorder here: keep the live drawing running in the note instead.
+			slot.innerHTML = `<div class="video-embed"></div>`;
+			$(".video-embed", slot).append(cap.out);
+		}
+		slot.insertAdjacentHTML("beforeend", `<p style="margin-top:10px"><span class="caret" aria-hidden="true"></span></p>`);
+		S.recorded = { name: S.picked.name, region: S.tab === "region", cursor: S.cursor, real: !!cap.rec };
+		toast(`Saved ${S.saved}`);
+		cam.focus();
+		render();
+	}
+
+	function toast(text) {
+		const t = $("#toast"); t.textContent = text; t.classList.add("show");
+		clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 2600);
+	}
+
+	// ---------- render ----------
+	function render() {
+		$$(".tog").forEach((b) => {
+			const [label, on, off] = TOG[b.dataset.opt]; const v = S[b.dataset.opt];
+			b.classList.toggle("on", v); b.setAttribute("aria-pressed", v);
+			b.innerHTML = `${icon(v ? on : off)}${label}`;
+		});
+		const needHelper = !S.cursor && !S.helper;
+		$("#helper").classList.toggle("on", needHelper);
+		const ready = !!S.picked && (S.tab !== "region" || !!S.rect) && !needHelper;
+		start.disabled = !ready;
+		hint.textContent = needHelper ? "Download the helper to record without the cursor."
+			: !S.picked ? { screen: "Pick a screen to record.", window: "Pick a window to record.", region: "Pick a screen, then drag over the area to record." }[S.tab]
+			: S.tab === "region" && !S.rect ? "Drag over the area to record."
+			: `Ready: ${S.picked.name}`;
+		renderExplain();
+	}
+
+	// ---------- wiring ----------
+	cam.onclick = () => (S.rec ? stopRec() : S.open ? closePicker() : openPicker());
+	$("#rec-status").onclick = stopRec;
+	$("#close").onclick = closePicker;
+	scrim.onclick = (e) => { if (e.target === scrim) closePicker(); };
+	app.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.open) closePicker(); });
+	$$(".tabs .ob").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
+	start.onclick = startRec;
+	$("#reset").onclick = async () => {
+		await stopRec(); clearInterval(timer);
+		Object.assign(S, { open: false, tab: "screen", picked: null, rect: null, cursor: true, mic: true, sys: true, helper: false, rec: false, saved: null });
+		scrim.classList.remove("open");
+		$("#embed-slot").innerHTML = `<span class="caret" aria-hidden="true"></span>`;
+		$("#toast").classList.remove("show");
+		render();
+	};
+	render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+# Builds the cursor helper (helper/) for every desktop OS.
+#
+# Pull requests that touch helper/ only build it. On a push to main (the dev -> main release PR),
+# if release "helper-v<version from helper/Cargo.toml>" doesn't exist yet, the four binaries are
+# published there. That is the release the plugin's "Download helper" button fetches from.
+name: helper
+
+on:
+  pull_request:
+    paths: ["helper/**", ".github/workflows/helper.yml"]
+  push:
+    branches: [main]
+    paths: ["helper/**", ".github/workflows/helper.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="helper-v$(sed -n 's/^version = "\(.*\)"/\1/p' helper/Cargo.toml | head -1)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "push" ] && ! gh release view "$tag" >/dev/null 2>&1; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, asset: cap-sort-helper-darwin-arm64 }
+          - { os: macos-latest, target: x86_64-apple-darwin, asset: cap-sort-helper-darwin-x64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, asset: cap-sort-helper-win32-x64.exe }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, asset: cap-sort-helper-linux-x64 }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: helper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Linux deps (PipeWire, D-Bus for the screencast portal, clang for bindgen)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libspa-0.2-dev libdbus-1-dev libclang-dev pkg-config
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Name the binary like the plugin expects
+        shell: bash
+        run: |
+          src=target/${{ matrix.target }}/release/cap-sort-helper
+          [ -f "$src.exe" ] && src="$src.exe"
+          mkdir -p ../dist && cp "$src" "../dist/${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+
+  publish:
+    needs: [check, build]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish helper release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release create "${{ needs.check.outputs.tag }}" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "${{ needs.check.outputs.tag }}" \
+            --notes "Cursor helper for cap-sort, downloaded by the plugin when you turn the cursor off. Built from helper/ by this workflow."

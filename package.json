@@ -1,0 +1,21 @@
+{
+	"name": "cap-sort",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc --noEmit && node esbuild.config.mjs production",
+		"test": "node --test src/*.test.ts"
+	},
+	"license": "MIT",
+	"dependencies": {
+		"fix-webm-duration": "^1.0.6"
+	},
+	"devDependencies": {
+		"@types/node": "^26.6.6",
+		"esbuild": "^0.28.2",
+		"obsidian": "^1.14.4",
+		"typescript": "^7.0.2"
+	}
+}
