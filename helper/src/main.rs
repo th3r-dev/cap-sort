@@ -130,10 +130,18 @@ fn packed(frame: VideoFrame) -> Option<(u32, u32, u32, Vec<u8>)> {
 		VideoFrame::BGR0(f) => (f.width, f.height, 1, f.data),
 		VideoFrame::RGBx(f) => (f.width, f.height, 3, f.data),
 		VideoFrame::XBGR(f) => (f.width, f.height, 3, f.data.chunks_exact(4).flat_map(|p| [p[3], p[2], p[1], 0]).collect()),
-		VideoFrame::RGB(f) => (f.width, f.height, 3, f.data.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 0]).collect()),
+		VideoFrame::RGB(f) => (f.width, f.height, 3, f.data.get(..(f.width.max(0) * f.height.max(0) * 3) as usize).unwrap_or(&[]).chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 0]).collect()),
 		VideoFrame::YUVFrame(_) => return None, // we always ask for BGRA
 	};
 	let (w, h) = (w as u32, h as u32);
+	let size = (w * h * 4) as usize;
 	// scap sends a 0×0 frame when nothing changed on macOS; drop it and any short buffer.
-	(w > 0 && h > 0 && data.len() >= (w * h * 4) as usize).then_some((w, h, fmt, data))
+	if w == 0 || h == 0 || data.len() < size {
+		return None;
+	}
+	// PipeWire hands over the whole buffer (maxsize), which can be longer than the image; the header promises w*h*4.
+	// ponytail: assumes no row padding (stride == width*4); handle stride if Linux frames come out sheared.
+	let mut data = data;
+	data.truncate(size);
+	Some((w, h, fmt, data))
 }
