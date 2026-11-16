@@ -43,9 +43,35 @@ Network use: the helper isn't bundled. When you turn the cursor off for the firs
 
 The helper's source is in [`helper/`](helper/), and the release binaries are built by [`.github/workflows/helper.yml`](.github/workflows/helper.yml).
 
-## Install (manual)
+## Install
 
-Copy `main.js`, `manifest.json` and `styles.css` into `<vault>/.obsidian/plugins/cap-sort/`, then enable **cap-sort** under **Settings → Community plugins**.
+cap-sort needs Obsidian 1.15 or later on macOS, Windows or Linux. It doesn't run on mobile.
+
+### From Community plugins
+
+1. Open **Settings → Community plugins**. If Restricted mode is on, click **Turn on community plugins**.
+2. Click **Browse** and search for **cap-sort**.
+3. Click **Install**, then **Enable**.
+
+cap-sort has been submitted to the community directory. Until it shows up there, use one of the options below.
+
+### With BRAT
+
+Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin, run **BRAT: Add a beta plugin for testing**, and enter `th3r-dev/cap-sort`. BRAT keeps it updated from this repository's releases.
+
+### By hand
+
+Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/th3r-dev/cap-sort/releases/latest) into `<vault>/.obsidian/plugins/cap-sort/`, then enable **cap-sort** under **Settings → Community plugins**.
+
+## Releasing
+
+Feature branches merge into `dev`. A release is a pull request from `dev` into `main`.
+
+1. On `dev`, set the new version (`x.y.z`, no `v`) in `manifest.json` and `package.json`, add it to `versions.json` with the lowest Obsidian version it supports, and update `RELEASE_NOTES.md`.
+2. Open a pull request from `dev` into `main`.
+3. Merge it.
+
+On every push to `main`, [`.github/workflows/release.yml`](.github/workflows/release.yml) reads the version from `manifest.json`. If that version hasn't been released yet, it checks the three version files agree, runs the tests, builds, and publishes release `x.y.z` with `main.js`, `manifest.json` and `styles.css`, which is what Obsidian installs. A merge that doesn't change the version publishes nothing. The community directory reads `manifest.json` from `main`, so it only sees a version once it's merged. The same merge publishes the cursor helper as release `helper-vX.Y.Z` when the version in `helper/Cargo.toml` is new ([`.github/workflows/helper.yml`](.github/workflows/helper.yml)); the plugin downloads from the release named in `HELPER_RELEASE` in `src/main.ts`, so bump both together.
 
 ## Build
 
