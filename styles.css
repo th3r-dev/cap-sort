@@ -47,7 +47,7 @@
 .cap-sort-region { position: relative; display: inline-block; max-width: 100%; overflow: hidden; border-radius: var(--radius-s); cursor: crosshair; user-select: none; touch-action: none; }
 .cap-sort-region img { display: block; max-width: 100%; max-height: 46vh; }
 /* The shadow dims everything outside the selection; the wrapper clips it. */
-.cap-sort-rect { position: absolute; pointer-events: none; border: 2px solid var(--interactive-accent); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45); }
+.cap-sort-rect { position: absolute; pointer-events: none; left: var(--cap-sort-x); top: var(--cap-sort-y); width: var(--cap-sort-w); height: var(--cap-sort-h); border: 2px solid var(--interactive-accent); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45); }
 
 /* Option toggles: icon switches between on/off glyphs; "on" gets a tinted fill, not the accent CTA. */
 .cap-sort-options {
