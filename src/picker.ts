@@ -1,7 +1,7 @@
 import { App, Modal, Notice, Platform, setIcon } from "obsidian";
 import { listSources, type Source } from "./capture.ts";
 import type { Settings } from "./main.ts";
-import { errText, type Rect, type Size } from "./util.ts";
+import { errText, type Rect, type Remote, type Size } from "./util.ts";
 
 export interface Choice { source: Source; showCursor: boolean; mic: boolean; systemAudio: boolean; rect?: Rect; preview?: Size }
 export interface Helper { path: string; exists(): boolean; download(): Promise<void> }
@@ -46,7 +46,7 @@ export class PickerModal extends Modal {
 	private mic: boolean;
 	private systemAudio: boolean;
 
-	constructor(app: App, private remote: any, cfg: Settings, private helper: Helper, private onPick: (c: Choice) => void) {
+	constructor(app: App, private remote: Remote, cfg: Settings, private helper: Helper, private onPick: (c: Choice) => void) {
 		super(app);
 		({ showCursor: this.showCursor, mic: this.mic, systemAudio: this.systemAudio } = cfg);
 	}
@@ -60,7 +60,7 @@ export class PickerModal extends Modal {
 		for (const [t, label, icon] of TABS) {
 			const b = iconButton(tabs, icon, label);
 			b.setAttrs({ role: "tab", "aria-label": label });
-			b.onclick = () => this.show(t);
+			b.onclick = () => void this.show(t);
 			this.tabEls.set(t, b);
 		}
 
@@ -86,7 +86,7 @@ export class PickerModal extends Modal {
 			this.onPick({ source: this.picked, showCursor: this.showCursor, mic: this.mic, systemAudio: this.systemAudio, rect: this.rect, preview: this.preview });
 		};
 
-		this.show(this.tab);
+		void this.show(this.tab);
 	}
 
 	private async show(tab: Tab) {
@@ -187,22 +187,22 @@ export class PickerModal extends Modal {
 		box.createEl("p", { cls: "cap-sort-message-title", text: "Obsidian can't see your screen yet" });
 		box.createEl("p", { text: "Turn on Obsidian under Screen Recording in System Settings, then quit and reopen Obsidian." });
 		const row = box.createDiv("cap-sort-actions");
-		iconButton(row, "settings", "Open Screen Recording settings", "mod-cta").onclick = () => this.remote.shell.openExternal(MAC_PRIVACY);
-		iconButton(row, "rotate-ccw", "Try again").onclick = () => this.show(this.tab);
+		iconButton(row, "settings", "Open Screen Recording settings", "mod-cta").onclick = () => void this.remote.shell.openExternal(MAC_PRIVACY);
+		iconButton(row, "rotate-ccw", "Try again").onclick = () => void this.show(this.tab);
 	}
 
 	private errorState(text: string) {
 		this.body.empty();
 		const box = this.body.createDiv("cap-sort-message");
 		box.createEl("p", { text });
-		iconButton(box.createDiv("cap-sort-actions"), "rotate-ccw", "Try again").onclick = () => this.show(this.tab);
+		iconButton(box.createDiv("cap-sort-actions"), "rotate-ccw", "Try again").onclick = () => void this.show(this.tab);
 	}
 
 	/** Swap the grid for a big still of the screen and let the user drag a rectangle on it. */
 	private regionEditor(s: Source) {
 		this.body.empty();
 		const back = iconButton(this.body, "arrow-left", "Choose another screen", "cap-sort-back");
-		back.onclick = () => this.show("region");
+		back.onclick = () => void this.show("region");
 		this.refresh();
 
 		const wrap = this.body.createDiv("cap-sort-region");
@@ -211,6 +211,9 @@ export class PickerModal extends Modal {
 		box.hide();
 
 		let start: { x: number; y: number } | null = null;
+		// Position lives in CSS variables; styles.css turns them into left/top/width/height.
+		const setBox = (x: number, y: number, w: number, h: number) =>
+			box.setCssProps({ "--cap-sort-x": `${x}px`, "--cap-sort-y": `${y}px`, "--cap-sort-w": `${w}px`, "--cap-sort-h": `${h}px` });
 		const at = (e: PointerEvent) => {
 			const r = img.getBoundingClientRect();
 			return { x: Math.min(Math.max(e.clientX - r.left, 0), r.width), y: Math.min(Math.max(e.clientY - r.top, 0), r.height) };
@@ -219,16 +222,13 @@ export class PickerModal extends Modal {
 			start = at(e);
 			wrap.setPointerCapture(e.pointerId);
 			box.show();
-			box.setCssStyles({ left: `${start.x}px`, top: `${start.y}px`, width: "0", height: "0" });
+			setBox(start.x, start.y, 0, 0);
 		};
 		wrap.onpointermove = (e) => {
 			if (!start) return;
 			const p = at(e);
 			this.rect = { x: start.x, y: start.y, w: p.x - start.x, h: p.y - start.y };
-			box.setCssStyles({
-				left: `${Math.min(start.x, p.x)}px`, top: `${Math.min(start.y, p.y)}px`,
-				width: `${Math.abs(this.rect.w)}px`, height: `${Math.abs(this.rect.h)}px`,
-			});
+			setBox(Math.min(start.x, p.x), Math.min(start.y, p.y), Math.abs(this.rect.w), Math.abs(this.rect.h));
 		};
 		wrap.onpointerup = () => {
 			start = null;

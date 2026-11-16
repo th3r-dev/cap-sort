@@ -1,5 +1,6 @@
 import fixWebmDuration from "fix-webm-duration";
-import { AUDIO_BITRATE, FrameParser, pickMimeType, scaleRect, videoBitrate, type Rect, type Size } from "./util.ts";
+import { childProcess } from "./node.ts";
+import { AUDIO_BITRATE, FrameParser, pickMimeType, scaleRect, videoBitrate, type Rect, type Remote, type Size } from "./util.ts";
 
 export interface Source { id: string; name: string; thumb: string; kind: "screen" | "window" }
 
@@ -20,7 +21,7 @@ export interface Capture {
 	/** Fires when the source goes away (window closed, display unplugged, helper died). */
 	ended: Promise<void>;
 	warnings: string[];
-	stop(): void;
+	stop: () => void;
 }
 
 // Not in lib.dom yet; Chromium has shipped both since v94.
@@ -29,12 +30,12 @@ declare const MediaStreamTrackGenerator: new (o: { kind: "video" }) => MediaStre
 
 const MAX = { w: 1920, h: 1200 }; // "medium": never encode above 1080p-ish, Retina screens included
 
-export async function listSources(remote: any, kind: Source["kind"], thumb: { width: number; height: number }): Promise<Source[]> {
+export async function listSources(remote: Remote, kind: Source["kind"], thumb: { width: number; height: number }): Promise<Source[]> {
 	const list = await remote.desktopCapturer.getSources({ types: [kind], thumbnailSize: thumb, fetchWindowIcons: false });
-	return list.map((s: any) => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL(), kind }));
+	return list.map((s) => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL(), kind }));
 }
 
-export async function openCapture(remote: any, src: Source, o: CaptureOptions): Promise<Capture> {
+export async function openCapture(remote: Remote, src: Source, o: CaptureOptions): Promise<Capture> {
 	const cleanups: (() => void)[] = [];
 	const warnings: string[] = [];
 	const stop = () => cleanups.splice(0).forEach((f) => f());
@@ -47,7 +48,7 @@ export async function openCapture(remote: any, src: Source, o: CaptureOptions): 
 		let video: Video = o.helper ? helperVideo(o.helper, src, o.fps) : chromiumVideo(display!.getVideoTracks()[0]);
 		if (o.helper) display?.getVideoTracks().forEach((t) => t.stop());
 		if (o.rect && o.preview) video = cropVideo(video, o.rect, o.preview);
-		cleanups.push(video.stop);
+		cleanups.push(() => video.stop());
 
 		const audio: MediaStreamTrack[] = [...(display?.getAudioTracks() ?? [])];
 		if (o.mic) {
@@ -55,12 +56,12 @@ export async function openCapture(remote: any, src: Source, o: CaptureOptions): 
 				const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
 				mic.getTracks().forEach((t) => cleanups.push(() => t.stop()));
 				audio.push(...mic.getAudioTracks());
-			} catch (e) {
+			} catch {
 				warnings.push("Couldn't open the microphone, so it won't be recorded.");
 			}
 		}
 		const mixed = mixAudio(audio);
-		if (mixed) cleanups.push(mixed.stop);
+		if (mixed) cleanups.push(() => mixed.stop());
 
 		const size = await video.size;
 		return { stream: new MediaStream([video.track, ...(mixed ? [mixed.track] : [])]), size, ended: video.ended, warnings, stop };
@@ -74,10 +75,10 @@ export async function openCapture(remote: any, src: Source, o: CaptureOptions): 
  * Obsidian never registers a display-media handler, so getDisplayMedia() throws NotSupportedError.
  * We register one for this call only and answer with the picked source (+ system audio via loopback).
  */
-async function displayMedia(remote: any, src: Source, o: CaptureOptions): Promise<MediaStream> {
+async function displayMedia(remote: Remote, src: Source, o: CaptureOptions): Promise<MediaStream> {
 	const ses = remote.session.defaultSession;
-	ses.setDisplayMediaRequestHandler((_req: unknown, cb: (r: unknown) => void) =>
-		cb({ video: { id: src.id, name: src.name }, ...(o.systemAudio ? { audio: "loopback" } : {}) }));
+	ses.setDisplayMediaRequestHandler((_req, cb) =>
+		cb({ video: { id: src.id, name: src.name }, ...(o.systemAudio ? { audio: "loopback" as const } : {}) }));
 	try {
 		return await navigator.mediaDevices.getDisplayMedia({
 			video: { width: { max: MAX.w }, height: { max: MAX.h }, frameRate: o.fps },
@@ -89,7 +90,7 @@ async function displayMedia(remote: any, src: Source, o: CaptureOptions): Promis
 	}
 }
 
-interface Video { track: MediaStreamTrack; size: Promise<Size>; ended: Promise<void>; stop(): void }
+interface Video { track: MediaStreamTrack; size: Promise<Size>; ended: Promise<void>; stop: () => void }
 
 function chromiumVideo(track: MediaStreamTrack): Video {
 	const s = track.getSettings();
@@ -103,7 +104,7 @@ function chromiumVideo(track: MediaStreamTrack): Video {
 
 /** Frames from the Rust helper (captures without the cursor) turned into a MediaStreamTrack. */
 function helperVideo(bin: string, src: Source, fps: number): Video {
-	const { spawn } = (window as any).require("child_process");
+	const { spawn } = childProcess();
 	const [kind, id] = src.id.split(":"); // Chromium ids look like "screen:1:0" / "window:21320:0"
 	const proc = spawn(bin, ["capture", kind, id, "--fps", String(fps), "--max-width", String(MAX.w)], { stdio: ["pipe", "pipe", "pipe"] });
 	const gen = new MediaStreamTrackGenerator({ kind: "video" });
@@ -114,7 +115,7 @@ function helperVideo(bin: string, src: Source, fps: number): Video {
 	const size = new Promise<Size>((res, rej) => { gotSize = res; failed = rej; });
 	const done = new Promise<void>((r) => (ended = r));
 
-	proc.stdout.on("data", (chunk: Uint8Array) => {
+	proc.stdout.on("data", (chunk: Buffer) => {
 		for (const f of parser.push(chunk)) {
 			gotSize({ w: f.w, h: f.h });
 			// ponytail: drops frames when the encoder lags; a bounded queue would smooth bursts if that shows up.
@@ -123,7 +124,7 @@ function helperVideo(bin: string, src: Source, fps: number): Video {
 			writer.write(frame).catch(() => {}).finally(() => frame.close());
 		}
 	});
-	proc.stderr.on("data", (d: Uint8Array) => (stderr += new TextDecoder().decode(d)));
+	proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
 	proc.on("error", (e: Error) => failed(e));
 	proc.on("exit", (code: number | null) => {
 		failed(new Error(stderr.trim() || `cursor helper exited with code ${code}`));
@@ -170,7 +171,7 @@ function mixAudio(tracks: MediaStreamTrack[]): { track: MediaStreamTrack; stop()
 	return { track: dest.stream.getAudioTracks()[0], stop: () => void ctx.close() };
 }
 
-export interface Recording { stop(): Promise<Blob> }
+export interface Recording { stop: () => Promise<Blob> }
 
 export function record(c: Capture, fps: number): Recording {
 	const audio = c.stream.getAudioTracks().length > 0;
@@ -192,7 +193,7 @@ export function record(c: Capture, fps: number): Recording {
 	});
 	rec.start(1000);
 	return {
-		stop() {
+		stop: () => {
 			if (rec.state !== "inactive") rec.stop();
 			c.stop();
 			return done;
