@@ -1,0 +1,10 @@
+{
+	"id": "cap-sort",
+	"name": "cap-sort",
+	"version": "0.1.0",
+	"minAppVersion": "1.5.0",
+	"description": "Record a screen, one window, or a region. Cursor on or off. Saves WebM to your vault.",
+	"author": "th3r-dev",
+	"authorUrl": "https://github.com/th3r-dev",
+	"isDesktopOnly": true
+}
