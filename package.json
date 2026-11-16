@@ -1,12 +1,13 @@
 {
 	"name": "cap-sort",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc --noEmit && node esbuild.config.mjs production",
-		"test": "node --test src/*.test.ts"
+		"test": "node --test src/*.test.ts",
+		"lint": "eslint ."
 	},
 	"license": "MIT",
 	"dependencies": {
@@ -15,7 +16,10 @@
 	"devDependencies": {
 		"@types/node": "^26.6.6",
 		"esbuild": "^0.28.2",
+		"eslint": "^9.39.5",
+		"eslint-plugin-obsidianmd": "^0.6.0",
 		"obsidian": "^1.14.4",
-		"typescript": "^7.0.2"
+		"typescript": "~5.9",
+		"typescript-eslint": "^8.72.2"
 	}
 }

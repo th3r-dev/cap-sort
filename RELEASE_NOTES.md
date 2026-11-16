@@ -1,9 +1,6 @@
-First release.
+Fixes from the Obsidian community review. Recording works the same as 0.1.0.
 
-- Record a whole screen, one app window, or a region you drag on a screen preview.
-- Microphone and system audio are on by default and mixed into one Opus track. System audio needs macOS 13+ or Windows.
-- Turning the cursor off uses a small helper program (about 1 MB). It's downloaded from this repository's `helper-v0.1.0` release only when you click **Download helper**.
-- Video is capped at 1920×1200 and encoded as AV1 when available (VP9 or VP8 otherwise). A busy full screen measured 7.5 to 9.5 MB per minute.
-- Saved to `Recordings/` in your vault and embedded at the cursor in the active note.
-
-Tested on macOS 27.3 with Obsidian 1.15.1. Windows and Linux builds haven't been tested by hand yet.
+- Settings now show up in Obsidian's settings search (they use the settings API from Obsidian 1.13).
+- The code no longer passes untyped values around. Electron and Node access is typed in one place (`src/node.ts`), and every promise is awaited or handled.
+- Release files (`main.js`, `manifest.json`, `styles.css`) and the cursor helper come with GitHub artifact attestations. To check one: `gh attestation verify main.js --repo th3r-dev/cap-sort`.
+- The README says exactly what the shell and file-system access is for: running and installing the cursor helper, nothing else.

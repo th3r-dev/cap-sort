@@ -3,15 +3,31 @@
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Size { w: number; h: number }
 
+/** The parts of Electron's main-process API (via @electron/remote) that cap-sort uses, typed. */
+export interface DesktopSource { id: string; name: string; thumbnail: { toDataURL: () => string } }
+export interface DisplayMediaResponse { video: { id: string; name: string }; audio?: "loopback" }
+export type DisplayMediaHandler = (request: unknown, callback: (response: DisplayMediaResponse) => void) => void;
+export interface Remote {
+	desktopCapturer: {
+		getSources: (options: { types: ("screen" | "window")[]; thumbnailSize: { width: number; height: number }; fetchWindowIcons?: boolean }) => Promise<DesktopSource[]>;
+	};
+	session: { defaultSession: { setDisplayMediaRequestHandler: (handler: DisplayMediaHandler | null) => void } };
+	systemPreferences?: { getMediaAccessStatus: (media: "screen" | "microphone" | "camera") => string };
+	shell: { openExternal: (url: string) => Promise<void> };
+}
+
 /** Obsidian puts @electron/remote on require("electron").remote; plugins have no other way to reach desktopCapturer. */
-export function getRemote(req: (id: string) => any): any {
-	let remote;
-	try { remote = req("electron")?.remote; } catch { /* not Electron */ }
-	if (!remote?.desktopCapturer || !remote?.session) {
+export function getRemote(req: (id: string) => unknown): Remote {
+	let remote: unknown;
+	try { remote = (req("electron") as { remote?: unknown } | undefined)?.remote; } catch { /* not Electron */ }
+	if (!isRemote(remote)) {
 		throw new Error("cap-sort needs desktop Obsidian (electron.remote is not available).");
 	}
 	return remote;
 }
+
+const isRemote = (r: unknown): r is Remote =>
+	typeof r === "object" && r !== null && "desktopCapturer" in r && "session" in r && !!r.desktopCapturer && !!r.session;
 
 /** Preview-space drag → source-space crop, normalised, clamped, even-sized. null = too small, record whole screen. */
 export function scaleRect(r: Rect, preview: Size, source: Size): Rect | null {

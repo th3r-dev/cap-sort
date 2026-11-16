@@ -43,6 +43,15 @@ Network use: the helper isn't bundled. When you turn the cursor off for the firs
 
 The helper's source is in [`helper/`](helper/), and the release binaries are built by [`.github/workflows/helper.yml`](.github/workflows/helper.yml).
 
+### What the plugin can access
+
+The community review lists two capabilities for cap-sort. Both exist only for the cursor helper:
+
+- Shell execution (`child_process`): starts the downloaded helper from the plugin's `bin/` folder with fixed arguments (`capture <screen|window> <id> --fps <n> --max-width 1920`), and only when you record with the cursor off. It runs nothing else.
+- File system outside the vault API (`fs`): checks whether the helper is installed, creates `.obsidian/plugins/cap-sort/bin/`, and writes the helper there with execute permission. Recordings are saved through Obsidian's vault API like any other file.
+
+The release assets and the helper binaries carry GitHub [artifact attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds), so you can check they were built from this repository: `gh attestation verify main.js --repo th3r-dev/cap-sort`.
+
 ## Install
 
 cap-sort needs Obsidian 1.15 or later on macOS, Windows or Linux. It doesn't run on mobile.
