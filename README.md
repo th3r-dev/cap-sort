@@ -1,6 +1,19 @@
-# cap-sort
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo-light.svg" alt="cap-sort" width="300" height="64">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://th3r-dev.github.io/cap-sort/"><b>Try the interactive demo</b></a> ·
+  <a href="https://github.com/th3r-dev/cap-sort/releases">Releases</a> ·
+  <a href="https://github.com/sponsors/th3r-dev">Sponsor</a>
+</p>
 
 Screen recorder for Obsidian desktop. Record a whole screen, one app window, or a region you draw. Your mic and system audio are recorded too, and the video lands in your vault as a WebM file, embedded in the note you're working on.
+
+The [project site](https://th3r-dev.github.io/cap-sort/) has a working copy of the plugin's interface. Click through a recording there and a side panel explains what the plugin does at each step.
 
 ## What it does
 
@@ -44,7 +57,7 @@ npm test        # unit tests (node --test)
 cd helper && cargo build --release   # the cursor helper
 ```
 
-`helper/vendor/scap` is scap 0.1.0-beta.1 with a two-function fix: on macOS it couldn't size windows belonging to other apps, so window capture failed. The changes are marked `cap-sort patch`.
+`helper/vendor/scap` is scap 0.1.0-beta.1 with small fixes, each marked `cap-sort patch`: on macOS it couldn't size windows belonging to other apps, and on Windows it didn't compile against the windows-capture 1.5 it depends on.
 
 ## Status
 
