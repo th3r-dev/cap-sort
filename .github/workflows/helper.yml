@@ -1,19 +1,42 @@
 # Builds the cursor helper (helper/) for every desktop OS.
-# PRs touching helper/ just build it; pushing a tag helper-v* also attaches the binaries to that release,
-# which is where the plugin's "Download helper" button fetches them from.
+#
+# Pull requests that touch helper/ only build it. On a push to main (the dev -> main release PR),
+# if release "helper-v<version from helper/Cargo.toml>" doesn't exist yet, the four binaries are
+# published there. That is the release the plugin's "Download helper" button fetches from.
 name: helper
 
 on:
   pull_request:
     paths: ["helper/**", ".github/workflows/helper.yml"]
   push:
-    tags: ["helper-v*"]
+    branches: [main]
+    paths: ["helper/**", ".github/workflows/helper.yml"]
 
 permissions:
   contents: write
 
 jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="helper-v$(sed -n 's/^version = "\(.*\)"/\1/p' helper/Cargo.toml | head -1)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "push" ] && ! gh release view "$tag" >/dev/null 2>&1; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: check
     strategy:
       fail-fast: false
       matrix:
@@ -45,8 +68,21 @@ jobs:
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/helper-v')
-        uses: softprops/action-gh-release@v2
+
+  publish:
+    needs: [check, build]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          files: dist/${{ matrix.asset }}
+          path: dist
+          merge-multiple: true
+      - name: Publish helper release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release create "${{ needs.check.outputs.tag }}" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "${{ needs.check.outputs.tag }}" \
+            --notes "Cursor helper for cap-sort, downloaded by the plugin when you turn the cursor off. Built from helper/ by this workflow."

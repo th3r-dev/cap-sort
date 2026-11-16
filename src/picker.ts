@@ -52,7 +52,7 @@ export class PickerModal extends Modal {
 	}
 
 	onOpen() {
-		this.setTitle("Record screen");
+		this.titleEl.setText("Record screen");
 		this.modalEl.addClass("cap-sort-modal");
 		const { contentEl } = this;
 
