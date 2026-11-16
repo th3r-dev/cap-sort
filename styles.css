@@ -1,4 +1,11 @@
-.cap-sort-modal { width: min(880px, 92vw); }
+/* cap-sort: Obsidian tokens only, so every theme (light/dark/community) carries over. */
+
+.cap-sort-modal { width: min(880px, 94vw); }
+
+/* Icon + label buttons */
+.cap-sort-btn { display: inline-flex; align-items: center; gap: var(--size-4-2); }
+.cap-sort-btn-icon { display: inline-flex; flex-shrink: 0; }
+.cap-sort-btn-icon svg { width: var(--icon-s); height: var(--icon-s); }
 
 /* Segmented tabs: quiet, so "Start recording" stays the only accent. */
 .cap-sort-tabs {
@@ -9,9 +16,10 @@
 .cap-sort-tabs button:hover { color: var(--text-normal); }
 .cap-sort-tabs button.is-active { background: var(--background-primary); color: var(--text-normal); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 
-.cap-sort-body { min-height: 220px; max-height: 58vh; overflow: auto; padding: 2px; }
+.cap-sort-body { min-height: 220px; max-height: 52vh; overflow: auto; padding: 2px; }
 
-.cap-sort-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--size-4-3); }
+/* Source grid */
+.cap-sort-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: var(--size-4-3); }
 .cap-sort-card {
 	display: flex; flex-direction: column; align-items: stretch; gap: var(--size-4-2);
 	height: auto; padding: var(--size-4-2); text-align: start; white-space: normal;
@@ -26,28 +34,63 @@
 	background: var(--background-secondary); border-radius: var(--radius-s);
 }
 .cap-sort-card img.is-blank { visibility: hidden; }
-.cap-sort-name {
-	font-size: var(--font-ui-small); color: var(--text-normal);
-	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
+.cap-sort-name { font-size: var(--font-ui-small); color: var(--text-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Empty / error / permission states */
 .cap-sort-message { padding: var(--size-4-6) var(--size-4-4); text-align: center; color: var(--text-muted); }
 .cap-sort-message p { margin: 0 0 var(--size-4-2); }
 .cap-sort-message-title { color: var(--text-normal); font-weight: var(--font-semibold); }
-.cap-sort-actions { display: flex; gap: var(--size-4-2); justify-content: center; margin-top: var(--size-4-3); }
+.cap-sort-actions { display: flex; flex-wrap: wrap; gap: var(--size-4-2); justify-content: center; margin-top: var(--size-4-3); }
 
+/* Region editor */
 .cap-sort-back { margin-bottom: var(--size-4-2); background: transparent; box-shadow: none; color: var(--text-accent); padding-inline: 0; }
-.cap-sort-region { position: relative; display: inline-block; overflow: hidden; border-radius: var(--radius-s); cursor: crosshair; user-select: none; touch-action: none; }
-.cap-sort-region img { display: block; max-width: 100%; max-height: 50vh; }
+.cap-sort-region { position: relative; display: inline-block; max-width: 100%; overflow: hidden; border-radius: var(--radius-s); cursor: crosshair; user-select: none; touch-action: none; }
+.cap-sort-region img { display: block; max-width: 100%; max-height: 46vh; }
 /* The shadow dims everything outside the selection; the wrapper clips it. */
 .cap-sort-rect { position: absolute; pointer-events: none; border: 2px solid var(--interactive-accent); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45); }
 
-.cap-sort-footer {
-	display: flex; align-items: center; justify-content: space-between; gap: var(--size-4-3);
-	padding-top: var(--size-4-3); border-top: 1px solid var(--background-modifier-border);
+/* Option toggles: icon switches between on/off glyphs; "on" gets a tinted fill, not the accent CTA. */
+.cap-sort-options {
+	display: flex; flex-wrap: wrap; gap: var(--size-4-2);
+	margin-top: var(--size-4-4); padding-top: var(--size-4-3); border-top: 1px solid var(--background-modifier-border);
 }
-.cap-sort-hint { color: var(--text-muted); font-size: var(--font-ui-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cap-sort-footer button { flex-shrink: 0; }
+.cap-sort-toggle { background: transparent; box-shadow: none; border: 1px solid var(--background-modifier-border); color: var(--text-muted); }
+.cap-sort-toggle:hover { color: var(--text-normal); border-color: var(--background-modifier-border-hover); }
+.cap-sort-toggle.is-on { color: var(--text-normal); background: var(--background-modifier-hover); border-color: transparent; }
+.cap-sort-toggle.is-on .cap-sort-btn-icon { color: var(--interactive-accent); }
+
+.cap-sort-helper-note:empty { display: none; }
+.cap-sort-helper-row {
+	display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--size-4-2) var(--size-4-3);
+	margin-top: var(--size-4-2); padding: var(--size-4-2) var(--size-4-3);
+	background: var(--background-secondary); border-radius: var(--radius-s);
+	font-size: var(--font-ui-small); color: var(--text-muted);
+}
+
+/* Footer: status hint on top, links left + primary action right below. */
+.cap-sort-footer { margin-top: var(--size-4-3); padding-top: var(--size-4-3); border-top: 1px solid var(--background-modifier-border); }
+.cap-sort-hint { margin-bottom: var(--size-4-2); color: var(--text-muted); font-size: var(--font-ui-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cap-sort-footer-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--size-4-3); }
+.cap-sort-record .cap-sort-btn-icon { color: var(--color-red); }
+.cap-sort-record:disabled .cap-sort-btn-icon { color: inherit; }
+
+.cap-sort-links { display: flex; flex-wrap: wrap; gap: var(--size-4-4); }
+.cap-sort-link { display: inline-flex; align-items: center; gap: var(--size-4-1); color: var(--text-muted); font-size: var(--font-ui-small); text-decoration: none; }
+.cap-sort-link:hover { color: var(--text-normal); }
+.cap-sort-link.is-sponsor:hover .cap-sort-btn-icon { color: var(--color-pink); }
+
+/* Narrow windows: full-width tabs, stacked footer, full-width primary action. */
+@media (max-width: 600px) {
+	.cap-sort-tabs { display: flex; }
+	.cap-sort-tabs button { flex: 1; justify-content: center; }
+	.cap-sort-options .cap-sort-toggle { flex: 1 1 auto; justify-content: center; }
+	.cap-sort-footer-bar { flex-direction: column-reverse; align-items: stretch; }
+	.cap-sort-record { justify-content: center; }
+	.cap-sort-links { justify-content: center; }
+}
+@media (max-width: 400px) {
+	.cap-sort-tabs .cap-sort-btn-label { display: none; } /* icons stay; labels return via aria-label */
+}
 
 /* Recording indicator: status bar + ribbon. */
 .cap-sort-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-error); font-variant-numeric: tabular-nums; }
