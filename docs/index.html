@@ -111,7 +111,10 @@ section { padding: clamp(40px, 7vw, 80px) 0; }
 .editor h4 { margin: 0 0 14px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
 .editor p { margin: 0 0 10px; color: var(--o-text); }
 .video-embed { margin-top: 4px; border-radius: 6px; overflow: hidden; background: #000; }
-.video-embed video { display: block; width: 100%; aspect-ratio: 16 / 9; }
+.video-embed video, .video-embed canvas { display: block; width: 100%; height: auto; max-height: 340px; object-fit: contain; background: #000; }
+.thumb > img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* A plain <img> would start the browser's own image drag and swallow the region drag. */
+.thumb > img { -webkit-user-drag: none; user-select: none; pointer-events: none; }
 .thumb .shot { position: absolute; overflow: hidden; border-radius: 3px; background: #000; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 .thumb .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .editor .caret { display: inline-block; width: 1px; height: 1.1em; background: var(--o-text); vertical-align: -3px; animation: blink 1s steps(1) infinite; }
@@ -473,23 +476,98 @@ cd helper &amp;&amp; cargo build --release</pre>
 	const pad = (n) => String(n).padStart(2, "0");
 	const fileName = (d) => `cap-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.webm`;
 
-	// ---------- fake sources (shapes only, no real screens) ----------
-	const desk = (wins, dark) => `<div class="thumb${dark ? " dark-app" : ""}">${wins.map(([l, t, w, h]) => `<i style="left:${l}%;top:${t}%;width:${w}%;height:${h}%"></i>`).join("")}</div>`;
+	// ---------- sources: each is a scene drawn on a canvas ----------
+	// The same draw code makes the picker thumbnails, the region preview and the recorded video,
+	// so whatever the visitor picks is what ends up in the note.
 	const POSTER = "assets/demo-kitten-poster.jpg";
-	// A desktop with the kitten clip playing in a window, and the window on its own.
-	const kittenDesk = `<div class="thumb"><i style="left:6%;top:8%;width:30%;height:40%"></i><div class="shot" style="left:24%;top:16%;width:70%;height:74%"><img src="${POSTER}" alt=""></div></div>`;
-	const kittenWin = `<div class="thumb"><div class="shot" style="inset:0"><img src="${POSTER}" alt=""></div></div>`;
+	const poster = new Image(); poster.src = POSTER;
+	const clip = Object.assign(document.createElement("video"), { src: "assets/demo-kitten.webm", muted: true, loop: true, playsInline: true, preload: "auto" });
+	const SANS = '-apple-system, "Segoe UI", Inter, sans-serif', MONO = '"Geist Mono", Menlo, Consolas, monospace';
+	const TERM = ["$ npm run build", "> tsc --noEmit && node esbuild.config.mjs production", "", "$ npm test", "✔ scaleRect maps preview pixels to source pixels", "✔ pickMimeType prefers AV1, then VP9, VP8", "✔ FrameParser reassembles frames split at any byte", "ℹ pass 14", "ℹ fail 0", "", "$ cargo build --release", "    Finished `release` profile [optimized]", "$ "];
+	const NOTE = ["Walkthrough of the new export flow:", "1. Open the export menu", "2. Pick CSV or PDF", "3. Check the preview, then save", "", "Open question: keep the filter on export?"];
+
+	/** Reveal `lines` up to `n` characters, typewriter style. */
+	const typed = (lines, n) => { const out = []; for (const l of lines) { if (n <= 0) break; out.push(l.slice(0, n)); n -= l.length + 1; } return out; };
+
+	function chrome(c, x, y, w, h, title, dark) {
+		const th = Math.max(18, h * 0.055);
+		c.fillStyle = dark ? "#1c1c21" : "#ffffff"; c.fillRect(x, y, w, h);
+		c.fillStyle = dark ? "#2b2b33" : "#ececec"; c.fillRect(x, y, w, th);
+		["#ff5f57", "#febc2e", "#28c840"].forEach((col, i) => { c.fillStyle = col; c.beginPath(); c.arc(x + th * (0.7 + i * 0.75), y + th / 2, th * 0.2, 0, 7); c.fill(); });
+		c.fillStyle = dark ? "#a0a0aa" : "#6b6b6b"; c.font = `${th * 0.48}px ${SANS}`; c.textAlign = "center"; c.textBaseline = "middle";
+		c.fillText(title, x + w / 2, y + th / 2); c.textAlign = "left";
+		c.strokeStyle = "rgba(0,0,0,.25)"; c.lineWidth = 1; c.strokeRect(x + .5, y + .5, w - 1, h - 1);
+		return { x, y: y + th, w, h: h - th };
+	}
+	function drawTerm(c, r, t) {
+		const fs = r.w * 0.024, lh = fs * 1.55, pad = fs;
+		c.font = `${fs}px ${MONO}`; c.textBaseline = "top";
+		const total = TERM.join(" ").length, n = (t * 26) % (total + 60);
+		const lines = typed(TERM, n);
+		lines.forEach((l, i) => { c.fillStyle = l.startsWith("$") ? "#7ee787" : l.startsWith("✔") ? "#9ecbff" : "#c9c9d1"; c.fillText(l, r.x + pad, r.y + pad + i * lh); });
+		if (Math.floor(t * 2) % 2 === 0) { const last = lines[lines.length - 1] || ""; c.fillStyle = "#c9c9d1"; c.fillRect(r.x + pad + c.measureText(last).width + 2, r.y + pad + Math.max(0, lines.length - 1) * lh, fs * 0.55, fs * 1.1); }
+	}
+	function drawNotes(c, r, t) {
+		c.fillStyle = "#ffffff"; c.fillRect(r.x, r.y, r.w, r.h);
+		const pad = r.w * 0.07, fs = r.w * 0.032;
+		c.fillStyle = "#222"; c.textBaseline = "top"; c.font = `700 ${fs * 1.6}px ${SANS}`; c.fillText("Meeting notes", r.x + pad, r.y + pad);
+		c.font = `${fs}px ${SANS}`;
+		const lines = typed(NOTE, (t * 16) % (NOTE.join(" ").length + 40));
+		lines.forEach((l, i) => c.fillText(l, r.x + pad, r.y + pad + fs * 2.8 + i * fs * 1.7));
+		if (Math.floor(t * 2) % 2 === 0) { const last = lines[lines.length - 1] || ""; c.fillRect(r.x + pad + c.measureText(last).width + 2, r.y + pad + fs * 2.8 + Math.max(0, lines.length - 1) * fs * 1.7, 2, fs * 1.2); }
+	}
+	function drawKitten(c, r, media) {
+		c.fillStyle = "#000"; c.fillRect(r.x, r.y, r.w, r.h);
+		const mw = media.videoWidth || media.naturalWidth, fullH = media.videoHeight || media.naturalHeight;
+		if (!mw) return;
+		// The clip carries its own thin window title bar at the top; skip it (the poster is already trimmed).
+		const top = media.videoWidth ? Math.round(fullH * 0.025) : 0, mh = fullH - top;
+		const k = Math.max(r.w / mw, r.h / mh), dw = mw * k, dh = mh * k;
+		c.save(); c.beginPath(); c.rect(r.x, r.y, r.w, r.h); c.clip();
+		c.drawImage(media, 0, top, mw, mh, r.x + (r.w - dw) / 2, r.y + (r.h - dh) / 2, dw, dh); c.restore();
+	}
+	function desktop(c, W, H) {
+		c.fillStyle = "#3a3f5c"; c.fillRect(0, 0, W, H);
+		c.fillStyle = "rgba(255,255,255,.16)"; c.fillRect(0, 0, W, H * 0.03);
+	}
+	const win = (c, W, H, [fx, fy, fw, fh], title, dark) => chrome(c, W * fx, H * fy, W * fw, H * fh, title, dark);
+
 	const SOURCES = {
 		screen: [
-			{ name: "Built-in display", thumb: kittenDesk },
-			{ name: "External monitor", thumb: desk([[10, 12, 80, 74]]) },
+			{ name: "Built-in display", w: 1440, h: 900, draw(c, t, m) { desktop(c, 1440, 900); drawNotes(c, win(c, 1440, 900, [.04, .08, .3, .44], "Meeting notes"), t); drawKitten(c, win(c, 1440, 900, [.24, .17, .7, .74], "Kitten playing"), m); } },
+			{ name: "External monitor", w: 1440, h: 900, draw(c, t) { desktop(c, 1440, 900); drawTerm(c, win(c, 1440, 900, [.05, .09, .52, .6], "Terminal", true), t); drawNotes(c, win(c, 1440, 900, [.45, .3, .5, .62], "Meeting notes"), t); } },
 		],
 		window: [
-			{ name: "Kitten playing", thumb: kittenWin },
-			{ name: "Meeting notes · My vault · Obsidian", thumb: desk([[4, 6, 92, 88]]) },
-			{ name: "Terminal", thumb: desk([[4, 6, 92, 88]], true) },
+			{ name: "Kitten playing", w: 1280, h: 740, draw(c, t, m) { drawKitten(c, chrome(c, 0, 0, 1280, 740, "Kitten playing"), m); } },
+			{ name: "Meeting notes · My vault · Obsidian", w: 1200, h: 780, draw(c, t) { drawNotes(c, chrome(c, 0, 0, 1200, 780, "Meeting notes · My vault"), t); } },
+			{ name: "Terminal", w: 1100, h: 680, draw(c, t) { drawTerm(c, chrome(c, 0, 0, 1100, 680, "Terminal — zsh", true), t); } },
 		],
 	};
+
+	/** Draw source `src` at time `t` into canvas `out`, optionally cropped to `crop` (fractions) and with a moving pointer. */
+	const full = document.createElement("canvas");
+	function frame(out, src, t, media, { crop = null, cursor = false } = {}) {
+		full.width = src.w; full.height = src.h;
+		const c = full.getContext("2d");
+		src.draw(c, t, media);
+		if (cursor) {
+			const x = src.w * (0.5 + 0.3 * Math.sin(t * 0.8)), y = src.h * (0.52 + 0.26 * Math.sin(t * 1.3 + 1)), k = src.w / 1100;
+			c.save(); c.translate(x, y); c.scale(k, k);
+			c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 22); c.lineTo(6, 17); c.lineTo(10, 26); c.lineTo(14, 24); c.lineTo(10, 15.5); c.lineTo(17, 15.5); c.closePath();
+			c.fillStyle = "#000"; c.fill(); c.strokeStyle = "#fff"; c.lineWidth = 1.6; c.stroke(); c.restore();
+		}
+		const [sx, sy, sw, sh] = crop ? [crop.fx * src.w, crop.fy * src.h, crop.fw * src.w, crop.fh * src.h] : [0, 0, src.w, src.h];
+		out.getContext("2d").drawImage(full, sx, sy, sw, sh, 0, 0, out.width, out.height);
+	}
+	function makeThumbs() {
+		for (const src of [...SOURCES.screen, ...SOURCES.window]) {
+			const cv = document.createElement("canvas"); cv.width = 640; cv.height = Math.round(640 * src.h / src.w);
+			frame(cv, src, 7, poster);
+			src.thumb = `<div class="thumb"><img src="${cv.toDataURL("image/jpeg", 0.85)}" alt="" draggable="false"></div>`;
+		}
+	}
+	makeThumbs();
+	poster.decode?.().then(() => { makeThumbs(); if (S.open && !S.picked) showTab(S.tab); }).catch(() => {});
 
 	// ---------- state ----------
 	const S = { open: false, tab: "screen", picked: null, rect: null, cursor: true, mic: true, sys: true, helper: false, rec: false, t0: 0, saved: null };
@@ -504,8 +582,8 @@ cd helper &amp;&amp; cargo build --release</pre>
 		region: ["Step 2 · Draw the region", `<p>Drag a rectangle over the preview. The plugin converts it from preview pixels to real screen pixels and crops every frame to it, so the file only contains that area.</p>`],
 		helper: ["Step 3 · Cursor off needs the helper", `<p>Chromium always paints the pointer into captures. With the cursor off, the plugin uses a small Rust helper instead. It's downloaded once from GitHub, only when you click the button. (In this demo nothing is downloaded.)</p>`],
 		ready: () => ["Step 3 · Check the options", `<p>${S.cursor ? "Cursor <strong>on</strong>: Chromium captures the video." : "Cursor <strong>off</strong>: the Rust helper captures the video, without the pointer."} ${audioText()}</p><p>Output: <span class="mono">${outSize().join("×")}</span>, AV1 capped at <span class="mono">${(bitrate() / 1e6).toFixed(2)} Mbps</span>. Real screens usually come in lower; a busy full screen measured 1.0 to 1.3 Mbps.</p><p>Press <strong>Start recording</strong>.</p>`],
-		rec: () => ["Step 4 · Recording", `<p>Frames go to <code>MediaRecorder</code> as AV1, capped at <span class="mono">${(bitrate() / 1e6).toFixed(2)} Mbps</span>${S.mic || S.sys ? ", audio as Opus at 64 kbps" : ""}. The red timer in the status bar shows you're recording.</p><p>Click the <strong>timer</strong> (or the camera again) to stop.</p>`],
-		saved: () => ["Step 5 · Saved and embedded", `<p>The file is saved as <code>${S.saved}</code> and <code>![[…]]</code> is inserted where your cursor was, so Obsidian shows the player right in the note. The WebM header gets its duration fixed, so the video can be scrubbed.</p><p>The clip in the note is a real cap-sort recording: the "Kitten playing" window, cursor off, no audio. 7.7 seconds at 1920×1080 came out at <span class="mono">300 KB</span>.</p>`],
+		rec: () => ["Step 4 · Recording", `<p>Your browser is recording <strong>${S.picked?.name}</strong> right now. In the plugin, frames go to <code>MediaRecorder</code> as AV1, capped at <span class="mono">${(bitrate() / 1e6).toFixed(2)} Mbps</span>${S.mic || S.sys ? ", audio as Opus at 64 kbps" : ""}. The red timer in the status bar shows you're recording.</p><p>Click the <strong>timer</strong> (or the camera again) to stop.</p>`],
+		saved: () => ["Step 5 · Saved and embedded", `<p>The file is saved as <code>${S.saved}</code> and <code>![[…]]</code> is inserted where your cursor was, so Obsidian shows the player right in the note.</p><p>The video in the note ${S.recorded?.real ? "was just recorded by your browser with <code>MediaRecorder</code>, the API the plugin uses" : "is the live capture (this browser can't record video)"}: <strong>${S.recorded?.name}</strong>${S.recorded?.region ? ", cropped to your region" : ""}, ${S.recorded?.cursor ? "with" : "without"} the pointer. In the demo the screens are drawn stand-ins; the kitten footage is a real cap-sort recording (7.7 s at 1920×1080, 300 KB).</p>`],
 	};
 	const audioText = () => S.mic && S.sys ? "Mic and system audio are mixed into one track." : S.mic ? "Only the mic is recorded." : S.sys ? "Only system audio is recorded." : "No audio.";
 	const outSize = () => {
@@ -585,7 +663,7 @@ cd helper &amp;&amp; cargo build --release</pre>
 			if (!st) return;
 			const p = at(e);
 			Object.assign(box.style, { left: Math.min(st.x, p.x) + "px", top: Math.min(st.y, p.y) + "px", width: Math.abs(p.x - st.x) + "px", height: Math.abs(p.y - st.y) + "px" });
-			S._tmp = { fw: Math.abs(p.x - st.x) / p.W, fh: Math.abs(p.y - st.y) / p.H };
+			S._tmp = { fx: Math.min(st.x, p.x) / p.W, fy: Math.min(st.y, p.y) / p.H, fw: Math.abs(p.x - st.x) / p.W, fh: Math.abs(p.y - st.y) / p.H };
 		};
 		area.onpointerup = () => {
 			st = null;
@@ -607,6 +685,7 @@ cd helper &amp;&amp; cargo build --release</pre>
 	function startRec() {
 		S.open = false; scrim.classList.remove("open");
 		S.rec = true; S.t0 = Date.now();
+		S.capture = capture(S.picked, S.tab === "region" ? S.rect : null, S.cursor);
 		cam.classList.add("is-recording"); cam.setAttribute("aria-label", "Stop recording");
 		$("#rec-status").classList.add("on");
 		const tick = () => { const s = Math.floor((Date.now() - S.t0) / 1000); $("#rec-time").textContent = `REC ${pad(Math.floor(s / 60))}:${pad(s % 60)}`; };
@@ -614,16 +693,49 @@ cd helper &amp;&amp; cargo build --release</pre>
 		$("#rec-status").focus();
 		render();
 	}
-	function stopRec() {
+	/** Record the picked source in this browser: draw it on a canvas, capture the canvas with MediaRecorder. */
+	function capture(src, crop, cursor) {
+		const scale = Math.min(1, 960 / src.w);
+		const out = document.createElement("canvas");
+		out.width = Math.max(2, Math.round((crop ? crop.fw : 1) * src.w * scale / 2) * 2);
+		out.height = Math.max(2, Math.round((crop ? crop.fh : 1) * src.h * scale / 2) * 2);
+		clip.currentTime = 0; clip.play().catch(() => {});
+		const t0 = performance.now() - 4000; // start a few seconds in, so typed text is already on screen
+		const draw = () => frame(out, src, (performance.now() - t0) / 1000, clip.readyState >= 2 ? clip : poster, { crop, cursor });
+		draw();
+		const loop = setInterval(draw, 1000 / 30);
+		const cap = { out, loop, rec: null, chunks: [] };
+		const type = window.MediaRecorder && out.captureStream && ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"].find((t) => MediaRecorder.isTypeSupported(t));
+		if (type) {
+			cap.rec = new MediaRecorder(out.captureStream(30), { mimeType: type, videoBitsPerSecond: 2_000_000 });
+			cap.rec.ondataavailable = (e) => e.data.size && cap.chunks.push(e.data);
+			cap.rec.start(500);
+		}
+		return cap;
+	}
+	let lastUrl = null;
+	async function stopRec() {
 		if (!S.rec) return;
 		clearInterval(timer);
 		S.rec = false;
 		cam.classList.remove("is-recording"); cam.setAttribute("aria-label", "Start recording");
 		$("#rec-status").classList.remove("on");
-		const secs = Math.max(1, Math.round((Date.now() - S.t0) / 1000));
 		S.saved = `Recordings/${fileName(new Date())}`;
-		$("#embed-slot").innerHTML = `<div class="video-embed"><video src="assets/demo-kitten.webm" poster="${POSTER}" controls autoplay muted loop playsinline aria-label="Embedded recording: ${S.saved.split("/")[1]}"></video></div>
-			<p style="margin-top:10px"><span class="caret" aria-hidden="true"></span></p>`;
+		const cap = S.capture; S.capture = null;
+		const slot = $("#embed-slot");
+		if (cap.rec) {
+			await new Promise((r) => { cap.rec.onstop = r; cap.rec.stop(); });
+			clearInterval(cap.loop); clip.pause();
+			if (lastUrl) URL.revokeObjectURL(lastUrl);
+			lastUrl = URL.createObjectURL(new Blob(cap.chunks, { type: cap.rec.mimeType }));
+			slot.innerHTML = `<div class="video-embed"><video src="${lastUrl}" controls autoplay muted loop playsinline aria-label="Embedded recording: ${S.saved.split("/")[1]}"></video></div>`;
+		} else {
+			// No MediaRecorder here: keep the live drawing running in the note instead.
+			slot.innerHTML = `<div class="video-embed"></div>`;
+			$(".video-embed", slot).append(cap.out);
+		}
+		slot.insertAdjacentHTML("beforeend", `<p style="margin-top:10px"><span class="caret" aria-hidden="true"></span></p>`);
+		S.recorded = { name: S.picked.name, region: S.tab === "region", cursor: S.cursor, real: !!cap.rec };
 		toast(`Saved ${S.saved}`);
 		cam.focus();
 		render();
@@ -660,8 +772,8 @@ cd helper &amp;&amp; cargo build --release</pre>
 	app.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.open) closePicker(); });
 	$$(".tabs .ob").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
 	start.onclick = startRec;
-	$("#reset").onclick = () => {
-		stopRec(); clearInterval(timer);
+	$("#reset").onclick = async () => {
+		await stopRec(); clearInterval(timer);
 		Object.assign(S, { open: false, tab: "screen", picked: null, rect: null, cursor: true, mic: true, sys: true, helper: false, rec: false, saved: null });
 		scrim.classList.remove("open");
 		$("#embed-slot").innerHTML = `<span class="caret" aria-hidden="true"></span>`;
