@@ -1,10 +1,13 @@
-import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, normalizePath } from "obsidian";
-import { cropTrack, openStream, record, type Recording } from "./capture.ts";
-import { PickerModal, type Choice } from "./picker.ts";
-import { errText, fileName, formatElapsed, getRemote, joinPath } from "./util.ts";
+import { App, FileSystemAdapter, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, normalizePath, requestUrl } from "obsidian";
+import { openCapture, record, type Recording } from "./capture.ts";
+import { LINKS, PickerModal, iconLink, type Choice, type Helper } from "./picker.ts";
+import { errText, fileName, formatElapsed, getRemote, helperName, joinPath } from "./util.ts";
 
-interface Settings { folder: string; showCursor: boolean; fps: number; embed: boolean }
-const DEFAULTS: Settings = { folder: "Recordings", showCursor: true, fps: 30, embed: true };
+export interface Settings { folder: string; showCursor: boolean; mic: boolean; systemAudio: boolean; fps: number; embed: boolean }
+const DEFAULTS: Settings = { folder: "Recordings", showCursor: true, mic: true, systemAudio: true, fps: 30, embed: true };
+
+/** Release that holds the prebuilt cursor helpers (built by .github/workflows/helper.yml). */
+const HELPER_RELEASE = "https://github.com/th3r-dev/cap-sort/releases/download/helper-v0.1.0";
 
 export default class CapSort extends Plugin {
 	cfg!: Settings;
@@ -28,19 +31,22 @@ export default class CapSort extends Plugin {
 	private pick() {
 		let remote;
 		try { remote = getRemote((id) => (window as any).require(id)); } catch (e) { new Notice(errText(e)); return; }
-		new PickerModal(this.app, remote, this.cfg.showCursor, (c) => this.start(remote, c).catch((e) => {
+		new PickerModal(this.app, remote, this.cfg, this.helper(), (c) => this.start(remote, c).catch((e) => {
 			this.cleanup();
 			new Notice(`Recording failed: ${errText(e)}`);
 		})).open();
 	}
 
 	private async start(remote: any, c: Choice) {
-		const { stream, cursorOk } = await openStream(remote, c.source, c.showCursor, this.cfg.fps);
-		if (!cursorOk) new Notice("This OS ignored the cursor setting, so the cursor will be recorded.");
-		const src = stream.getVideoTracks()[0];
-		const track = c.rect && c.preview ? cropTrack(src, c.rect, c.preview) : src;
-		this.rec = record(track);
-		src.addEventListener("ended", () => { if (this.rec) void this.stop(); }, { once: true }); // window closed, display unplugged
+		const helper = this.helper();
+		const cap = await openCapture(remote, c.source, {
+			fps: this.cfg.fps, mic: c.mic, systemAudio: c.systemAudio, rect: c.rect, preview: c.preview,
+			// Chromium always draws the cursor; only the helper can leave it out.
+			helper: !c.showCursor && helper.exists() ? helper.path : undefined,
+		});
+		cap.warnings.forEach((w) => new Notice(w));
+		this.rec = record(cap, this.cfg.fps);
+		void cap.ended.then(() => { if (this.rec) void this.stop(); }); // window closed, display unplugged
 
 		const t0 = Date.now();
 		this.statusEl = this.addStatusBarItem();
@@ -79,6 +85,24 @@ export default class CapSort extends Plugin {
 		return path;
 	}
 
+	/** The cursor helper lives next to main.js in bin/, downloaded on first use. */
+	private helper(): Helper {
+		const fs = (window as any).require("fs");
+		const adapter = this.app.vault.adapter as FileSystemAdapter;
+		const name = helperName(process.platform, process.arch);
+		const dir = `${adapter.getBasePath()}/${this.manifest.dir}/bin`;
+		const path = `${dir}/${name}`;
+		return {
+			path,
+			exists: () => fs.existsSync(path),
+			download: async () => {
+				const res = await requestUrl({ url: `${HELPER_RELEASE}/${name}` });
+				fs.mkdirSync(dir, { recursive: true });
+				fs.writeFileSync(path, new Uint8Array(res.arrayBuffer), { mode: 0o755 });
+			},
+		};
+	}
+
 	private cleanup() {
 		this.rec = undefined;
 		window.clearInterval(this.timer);
@@ -101,9 +125,19 @@ class CapSortSettings extends PluginSettingTab {
 			.addText((t) => t.setPlaceholder("Recordings").setValue(s.folder).onChange((v) => { s.folder = v.trim(); void save(); }));
 		new Setting(el).setName("Show cursor by default").setDesc("You can still change it in the picker before each recording.")
 			.addToggle((t) => t.setValue(s.showCursor).onChange((v) => { s.showCursor = v; void save(); }));
+		new Setting(el).setName("Record microphone").setDesc("On by default. You can change it in the picker too.")
+			.addToggle((t) => t.setValue(s.mic).onChange((v) => { s.mic = v; void save(); }));
+		new Setting(el).setName("Record system audio").setDesc("Sound from apps. Works on macOS 13+ and Windows.")
+			.addToggle((t) => t.setValue(s.systemAudio).onChange((v) => { s.systemAudio = v; void save(); }));
 		new Setting(el).setName("Frame rate")
 			.addDropdown((d) => d.addOptions({ "15": "15 fps", "30": "30 fps", "60": "60 fps" }).setValue(String(s.fps)).onChange((v) => { s.fps = Number(v); void save(); }));
 		new Setting(el).setName("Embed in active note").setDesc("Insert ![[recording]] at the cursor when you stop.")
 			.addToggle((t) => t.setValue(s.embed).onChange((v) => { s.embed = v; void save(); }));
+
+		new Setting(el).setName("Support").setHeading();
+		const links = new Setting(el).setName("cap-sort is free and open source").setDesc("Report bugs on GitHub. Sponsoring keeps it maintained.").controlEl;
+		links.addClass("cap-sort-links");
+		iconLink(links, "github", "GitHub", LINKS.github);
+		iconLink(links, "heart", "Sponsor", LINKS.sponsor, "is-sponsor");
 	}
 }

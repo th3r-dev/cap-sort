@@ -1,11 +1,30 @@
-import { App, Modal, Notice, Platform, Setting } from "obsidian";
+import { App, Modal, Notice, Platform, setIcon } from "obsidian";
 import { listSources, type Source } from "./capture.ts";
+import type { Settings } from "./main.ts";
 import { errText, type Rect, type Size } from "./util.ts";
 
-export interface Choice { source: Source; showCursor: boolean; rect?: Rect; preview?: Size }
+export interface Choice { source: Source; showCursor: boolean; mic: boolean; systemAudio: boolean; rect?: Rect; preview?: Size }
+export interface Helper { path: string; exists(): boolean; download(): Promise<void> }
 type Tab = "screen" | "window" | "region";
 
-const TABS: [Tab, string][] = [["screen", "Screen"], ["window", "Window"], ["region", "Region"]];
+const TABS: [Tab, string, string][] = [["screen", "Screen", "monitor"], ["window", "Window", "app-window"], ["region", "Region", "square-dashed"]];
+export const LINKS = { github: "https://github.com/th3r-dev/cap-sort", sponsor: "https://github.com/sponsors/th3r-dev" };
+
+/** Every action gets an icon next to its label, so its purpose reads at a glance. */
+export function iconButton(parent: HTMLElement, icon: string, text: string, cls = ""): HTMLButtonElement {
+	const b = parent.createEl("button", { cls: `cap-sort-btn ${cls}`.trim() });
+	setIcon(b.createSpan("cap-sort-btn-icon"), icon);
+	b.createSpan({ cls: "cap-sort-btn-label", text });
+	return b;
+}
+
+/** Same, but a link that opens in the browser. */
+export function iconLink(parent: HTMLElement, icon: string, text: string, href: string, cls = ""): HTMLAnchorElement {
+	const a = parent.createEl("a", { cls: `cap-sort-link ${cls}`.trim(), href, attr: { target: "_blank", rel: "noopener" } });
+	setIcon(a.createSpan("cap-sort-btn-icon"), icon);
+	a.createSpan({ text });
+	return a;
+}
 const HINT: Record<Tab, string> = {
 	screen: "Pick a screen to record.",
 	window: "Pick a window to record.",
@@ -22,9 +41,14 @@ export class PickerModal extends Modal {
 	private body!: HTMLElement;
 	private hint!: HTMLElement;
 	private recordBtn!: HTMLButtonElement;
+	private helperNote!: HTMLElement;
+	private showCursor: boolean;
+	private mic: boolean;
+	private systemAudio: boolean;
 
-	constructor(app: App, private remote: any, private showCursor: boolean, private onPick: (c: Choice) => void) {
+	constructor(app: App, private remote: any, cfg: Settings, private helper: Helper, private onPick: (c: Choice) => void) {
 		super(app);
+		({ showCursor: this.showCursor, mic: this.mic, systemAudio: this.systemAudio } = cfg);
 	}
 
 	onOpen() {
@@ -33,23 +57,33 @@ export class PickerModal extends Modal {
 		const { contentEl } = this;
 
 		const tabs = contentEl.createDiv({ cls: "cap-sort-tabs", attr: { role: "tablist", "aria-label": "What to record" } });
-		for (const [t, label] of TABS) {
-			const b = tabs.createEl("button", { text: label, attr: { role: "tab" } });
+		for (const [t, label, icon] of TABS) {
+			const b = iconButton(tabs, icon, label);
+			b.setAttrs({ role: "tab", "aria-label": label });
 			b.onclick = () => this.show(t);
 			this.tabEls.set(t, b);
 		}
 
 		this.body = contentEl.createDiv({ cls: "cap-sort-body", attr: { role: "tabpanel" } });
 
-		new Setting(contentEl).setName("Show cursor").addToggle((tg) => tg.setValue(this.showCursor).onChange((v) => (this.showCursor = v)));
+		// Icon toggles: the icon itself shows on/off (mic vs mic-off), the label says what it controls.
+		const opts = contentEl.createDiv({ cls: "cap-sort-options", attr: { role: "group", "aria-label": "Recording options" } });
+		this.toggle(opts, "Cursor", ["mouse-pointer-2", "mouse-pointer-ban"], this.showCursor, (v) => { this.showCursor = v; this.refresh(); });
+		this.toggle(opts, "Microphone", ["mic", "mic-off"], this.mic, (v) => (this.mic = v));
+		this.toggle(opts, "System audio", ["volume-2", "volume-x"], this.systemAudio, (v) => (this.systemAudio = v));
+		this.helperNote = contentEl.createDiv("cap-sort-helper-note");
 
 		const footer = contentEl.createDiv("cap-sort-footer");
 		this.hint = footer.createDiv({ cls: "cap-sort-hint", attr: { "aria-live": "polite" } });
-		this.recordBtn = footer.createEl("button", { cls: "mod-cta", text: "Start recording" });
+		const bar = footer.createDiv("cap-sort-footer-bar");
+		const links = bar.createDiv("cap-sort-links");
+		iconLink(links, "github", "GitHub", LINKS.github);
+		iconLink(links, "heart", "Sponsor", LINKS.sponsor, "is-sponsor");
+		this.recordBtn = iconButton(bar, "circle-dot", "Start recording", "mod-cta cap-sort-record");
 		this.recordBtn.onclick = () => {
 			if (!this.picked) return;
 			this.close();
-			this.onPick({ source: this.picked, showCursor: this.showCursor, rect: this.rect, preview: this.preview });
+			this.onPick({ source: this.picked, showCursor: this.showCursor, mic: this.mic, systemAudio: this.systemAudio, rect: this.rect, preview: this.preview });
 		};
 
 		this.show(this.tab);
@@ -97,12 +131,53 @@ export class PickerModal extends Modal {
 		}
 	}
 
+	private toggle(parent: HTMLElement, label: string, [on, off]: [string, string], value: boolean, onChange: (v: boolean) => void) {
+		const b = iconButton(parent, value ? on : off, label, "cap-sort-toggle");
+		const paint = () => {
+			b.toggleClass("is-on", value);
+			b.setAttr("aria-pressed", String(value));
+			setIcon(b.querySelector(".cap-sort-btn-icon") as HTMLElement, value ? on : off);
+		};
+		b.onclick = () => { value = !value; paint(); onChange(value); };
+		paint();
+	}
+
 	private select(s: Source | undefined) {
 		this.picked = s;
 		this.rect = this.preview = undefined;
-		const ready = !!s && this.tab !== "region"; // region also needs a drawn rectangle
+		this.refresh();
+	}
+
+	/** One place decides whether Start is allowed and what the footer says. */
+	private refresh(regionHint?: string) {
+		const needHelper = !this.showCursor && !this.helper.exists();
+		this.helperNote.empty();
+		if (needHelper) this.helperPrompt();
+		const hasRegion = !!this.rect && !!this.preview;
+		const ready = !!this.picked && (this.tab !== "region" || hasRegion) && !needHelper;
 		this.recordBtn.disabled = !ready;
-		this.hint.setText(ready ? `Ready: ${s!.name}` : HINT[this.tab]);
+		if (needHelper) this.hint.setText("Download the helper to record without the cursor.");
+		else if (!this.picked) this.hint.setText(HINT[this.tab]);
+		else if (this.tab === "region") this.hint.setText(regionHint ?? "Drag over the area to record.");
+		else this.hint.setText(`Ready: ${this.picked.name}`);
+	}
+
+	/** Chromium always draws the cursor, so hiding it needs the small Rust helper from the GitHub release. */
+	private helperPrompt() {
+		const row = this.helperNote.createDiv("cap-sort-helper-row");
+		row.createSpan({ text: "Hiding the cursor needs the cap-sort helper (about 1 MB, downloaded from GitHub)." });
+		const btn = iconButton(row, "download", "Download helper");
+		btn.onclick = async () => {
+			btn.disabled = true;
+			btn.querySelector(".cap-sort-btn-label")!.setText("Downloading…");
+			try {
+				await this.helper.download();
+				new Notice("Helper installed.");
+			} catch (e) {
+				new Notice(`Couldn't download the helper: ${errText(e)}`);
+			}
+			this.refresh();
+		};
 	}
 
 	/** macOS answers "Failed to get sources." with no detail when the permission is off, so say what to do instead. */
@@ -112,23 +187,23 @@ export class PickerModal extends Modal {
 		box.createEl("p", { cls: "cap-sort-message-title", text: "Obsidian can't see your screen yet" });
 		box.createEl("p", { text: "Turn on Obsidian under Screen Recording in System Settings, then quit and reopen Obsidian." });
 		const row = box.createDiv("cap-sort-actions");
-		row.createEl("button", { cls: "mod-cta", text: "Open Screen Recording settings" }).onclick = () => this.remote.shell.openExternal(MAC_PRIVACY);
-		row.createEl("button", { text: "Try again" }).onclick = () => this.show(this.tab);
+		iconButton(row, "settings", "Open Screen Recording settings", "mod-cta").onclick = () => this.remote.shell.openExternal(MAC_PRIVACY);
+		iconButton(row, "rotate-ccw", "Try again").onclick = () => this.show(this.tab);
 	}
 
 	private errorState(text: string) {
 		this.body.empty();
 		const box = this.body.createDiv("cap-sort-message");
 		box.createEl("p", { text });
-		box.createDiv("cap-sort-actions").createEl("button", { text: "Try again" }).onclick = () => this.show(this.tab);
+		iconButton(box.createDiv("cap-sort-actions"), "rotate-ccw", "Try again").onclick = () => this.show(this.tab);
 	}
 
 	/** Swap the grid for a big still of the screen and let the user drag a rectangle on it. */
 	private regionEditor(s: Source) {
 		this.body.empty();
-		const back = this.body.createEl("button", { cls: "cap-sort-back", text: "← Choose another screen" });
+		const back = iconButton(this.body, "arrow-left", "Choose another screen", "cap-sort-back");
 		back.onclick = () => this.show("region");
-		this.hint.setText("Drag over the area to record.");
+		this.refresh();
 
 		const wrap = this.body.createDiv("cap-sort-region");
 		const img = wrap.createEl("img", { attr: { src: s.thumb, alt: `Still of ${s.name}`, draggable: "false" } });
@@ -164,8 +239,8 @@ export class PickerModal extends Modal {
 				this.rect = undefined;
 				new Notice("Drag to draw a rectangle.");
 			}
-			this.recordBtn.disabled = !ok;
-			this.hint.setText(ok ? `Ready: ${Math.round(Math.abs(this.rect!.w) / img.clientWidth * 100)}% × ${Math.round(Math.abs(this.rect!.h) / img.clientHeight * 100)}% of ${s.name}` : "Drag over the area to record.");
+			if (!ok) this.preview = undefined;
+			this.refresh(ok ? `Ready: ${Math.round(Math.abs(this.rect!.w) / img.clientWidth * 100)}% × ${Math.round(Math.abs(this.rect!.h) / img.clientHeight * 100)}% of ${s.name}` : undefined);
 		};
 	}
 
