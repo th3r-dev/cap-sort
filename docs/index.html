@@ -110,9 +110,10 @@ section { padding: clamp(40px, 7vw, 80px) 0; }
 .editor { overflow: auto; padding: 28px clamp(16px, 4vw, 48px); }
 .editor h4 { margin: 0 0 14px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
 .editor p { margin: 0 0 10px; color: var(--o-text); }
-.editor .embed { margin-top: 12px; border-radius: 6px; overflow: hidden; background: #000; color: #ddd; font: 12px var(--mono); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 10px 12px; }
-.editor .embed b { color: #fff; font-weight: 500; }
-.editor .link-src { font-family: var(--mono); font-size: 13px; color: var(--o-muted); }
+.video-embed { margin-top: 4px; border-radius: 6px; overflow: hidden; background: #000; }
+.video-embed video { display: block; width: 100%; aspect-ratio: 16 / 9; }
+.thumb .shot { position: absolute; overflow: hidden; border-radius: 3px; background: #000; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.thumb .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .editor .caret { display: inline-block; width: 1px; height: 1.1em; background: var(--o-text); vertical-align: -3px; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 .statusbar { grid-column: 1 / -1; display: flex; justify-content: flex-end; align-items: center; gap: 16px; padding: 0 12px; background: var(--o-bg-2); border-top: 1px solid var(--o-border); font-size: 12px; color: var(--o-muted); }
@@ -405,6 +406,7 @@ footer nav { display: flex; gap: 6px; flex-wrap: wrap; }
 						<tr><td>Screen, cursor off</td><td>Rust helper</td><td class="num">1920×1200</td></tr>
 						<tr><td>Window</td><td>both</td><td class="num">1920×1164</td></tr>
 						<tr><td>Region 50%×40%</td><td>both</td><td class="num">960×480</td></tr>
+						<tr><td>The kitten clip above (window, 7.7 s)</td><td>Rust helper</td><td class="num">1920×1080 · 300 KB</td></tr>
 					</tbody>
 				</table>
 				</div>
@@ -436,7 +438,7 @@ cd helper &amp;&amp; cargo build --release</pre>
 
 <footer>
 	<div class="wrap">
-		<span>cap-sort · MIT licence · Icons: Lucide</span>
+		<span>cap-sort · MIT licence · Icons: Lucide · Demo clip: screen recording of <a href="https://commons.wikimedia.org/wiki/File:Kitten_playing_-_Tokyo_-_Jan_7_2020.webm">"Kitten playing - Tokyo - Jan 7 2020"</a> by Nesnad, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></span>
 		<nav aria-label="Project">
 			<a class="btn" href="https://github.com/th3r-dev/cap-sort"><svg aria-hidden="true"><use href="#i-github"/></svg>GitHub</a>
 			<a class="btn" href="https://github.com/sponsors/th3r-dev"><svg aria-hidden="true" style="color:var(--rec)"><use href="#i-heart"/></svg>Sponsor</a>
@@ -473,16 +475,19 @@ cd helper &amp;&amp; cargo build --release</pre>
 
 	// ---------- fake sources (shapes only, no real screens) ----------
 	const desk = (wins, dark) => `<div class="thumb${dark ? " dark-app" : ""}">${wins.map(([l, t, w, h]) => `<i style="left:${l}%;top:${t}%;width:${w}%;height:${h}%"></i>`).join("")}</div>`;
+	const POSTER = "assets/demo-kitten-poster.jpg";
+	// A desktop with the kitten clip playing in a window, and the window on its own.
+	const kittenDesk = `<div class="thumb"><i style="left:6%;top:8%;width:30%;height:40%"></i><div class="shot" style="left:24%;top:16%;width:70%;height:74%"><img src="${POSTER}" alt=""></div></div>`;
+	const kittenWin = `<div class="thumb"><div class="shot" style="inset:0"><img src="${POSTER}" alt=""></div></div>`;
 	const SOURCES = {
 		screen: [
-			{ name: "Built-in display", thumb: desk([[6, 10, 52, 62], [40, 30, 54, 60]]) },
+			{ name: "Built-in display", thumb: kittenDesk },
 			{ name: "External monitor", thumb: desk([[10, 12, 80, 74]]) },
 		],
 		window: [
+			{ name: "Kitten playing", thumb: kittenWin },
 			{ name: "Meeting notes · My vault · Obsidian", thumb: desk([[4, 6, 92, 88]]) },
 			{ name: "Terminal", thumb: desk([[4, 6, 92, 88]], true) },
-			{ name: "Browser · Export settings", thumb: desk([[4, 6, 92, 88]]) },
-			{ name: "Spreadsheet · Q3 numbers", thumb: desk([[4, 6, 92, 88]]) },
 		],
 	};
 
@@ -500,7 +505,7 @@ cd helper &amp;&amp; cargo build --release</pre>
 		helper: ["Step 3 · Cursor off needs the helper", `<p>Chromium always paints the pointer into captures. With the cursor off, the plugin uses a small Rust helper instead. It's downloaded once from GitHub, only when you click the button. (In this demo nothing is downloaded.)</p>`],
 		ready: () => ["Step 3 · Check the options", `<p>${S.cursor ? "Cursor <strong>on</strong>: Chromium captures the video." : "Cursor <strong>off</strong>: the Rust helper captures the video, without the pointer."} ${audioText()}</p><p>Output: <span class="mono">${outSize().join("×")}</span>, AV1 capped at <span class="mono">${(bitrate() / 1e6).toFixed(2)} Mbps</span>. Real screens usually come in lower; a busy full screen measured 1.0 to 1.3 Mbps.</p><p>Press <strong>Start recording</strong>.</p>`],
 		rec: () => ["Step 4 · Recording", `<p>Frames go to <code>MediaRecorder</code> as AV1, capped at <span class="mono">${(bitrate() / 1e6).toFixed(2)} Mbps</span>${S.mic || S.sys ? ", audio as Opus at 64 kbps" : ""}. The red timer in the status bar shows you're recording.</p><p>Click the <strong>timer</strong> (or the camera again) to stop.</p>`],
-		saved: () => ["Step 5 · Saved and embedded", `<p>The file is saved as <code>${S.saved}</code> and <code>![[…]]</code> is inserted where your cursor was in the note. The WebM header gets its duration fixed, so the video can be scrubbed.</p><p>Try again with the cursor off, or record a region.</p>`],
+		saved: () => ["Step 5 · Saved and embedded", `<p>The file is saved as <code>${S.saved}</code> and <code>![[…]]</code> is inserted where your cursor was, so Obsidian shows the player right in the note. The WebM header gets its duration fixed, so the video can be scrubbed.</p><p>The clip in the note is a real cap-sort recording: the "Kitten playing" window, cursor off, no audio. 7.7 seconds at 1920×1080 came out at <span class="mono">300 KB</span>.</p>`],
 	};
 	const audioText = () => S.mic && S.sys ? "Mic and system audio are mixed into one track." : S.mic ? "Only the mic is recorded." : S.sys ? "Only system audio is recorded." : "No audio.";
 	const outSize = () => {
@@ -617,9 +622,7 @@ cd helper &amp;&amp; cargo build --release</pre>
 		$("#rec-status").classList.remove("on");
 		const secs = Math.max(1, Math.round((Date.now() - S.t0) / 1000));
 		S.saved = `Recordings/${fileName(new Date())}`;
-		const mb = ((bitrate() + (S.mic || S.sys ? 64000 : 0)) * secs / 8 / 1e6).toFixed(1);
-		$("#embed-slot").innerHTML = `<div class="link-src">![[${S.saved}]]</div>
-			<div class="embed">${icon("video").replace("<svg", '<svg width="16" height="16"')}<b>${S.saved.split("/")[1]}</b><span>${pad(Math.floor(secs / 60))}:${pad(secs % 60)} · ${outSize().join("×")} · ≤${mb} MB</span></div>
+		$("#embed-slot").innerHTML = `<div class="video-embed"><video src="assets/demo-kitten.webm" poster="${POSTER}" controls autoplay muted loop playsinline aria-label="Embedded recording: ${S.saved.split("/")[1]}"></video></div>
 			<p style="margin-top:10px"><span class="caret" aria-hidden="true"></span></p>`;
 		toast(`Saved ${S.saved}`);
 		cam.focus();
