@@ -2,10 +2,11 @@ import { App, FileSystemAdapter, MarkdownView, Notice, Plugin, PluginSettingTab,
 import { openCapture, record, type Recording } from "./capture.ts";
 import { electronRemote, fs } from "./node.ts";
 import { LINKS, PickerModal, iconLink, type Choice, type Helper } from "./picker.ts";
-import { FORMATS, errText, fileName, formatElapsed, helperName, outputPaths, type Format, type Remote } from "./util.ts";
+import { TempRecording, recover, type Patch } from "./store.ts";
+import { FORMATS, errText, fileName, formatElapsed, helperName, type Format, type Remote } from "./util.ts";
 
 export interface Settings { folder: string; showCursor: boolean; mic: boolean; systemAudio: boolean; fps: number; embed: boolean; format: Format; mp3: boolean }
-const DEFAULTS: Settings = { folder: "Recordings", showCursor: true, mic: true, systemAudio: true, fps: 30, embed: true, format: "webm", mp3: false };
+const DEFAULTS: Settings = { folder: "Recordings", showCursor: true, mic: true, systemAudio: true, fps: 30, embed: true, format: "mp4", mp3: false };
 
 /** Release that holds the prebuilt cursor helpers (built by .github/workflows/helper.yml). */
 const HELPER_RELEASE = "https://github.com/th3r-dev/cap-sort/releases/download/helper-v0.1.0";
@@ -13,8 +14,8 @@ const HELPER_RELEASE = "https://github.com/th3r-dev/cap-sort/releases/download/h
 export default class CapSort extends Plugin {
 	declare settings: Settings;
 	private rec?: Recording;
+	private temp?: TempRecording;
 	private statusEl?: HTMLElement;
-	private format: Format = "webm";
 	private timer?: number;
 	private ribbon!: HTMLElement;
 	/** Undoes the hover preview: listeners on the ribbon and status bar, and the popup if it's open. */
@@ -29,6 +30,7 @@ export default class CapSort extends Plugin {
 			else this.pick();
 		});
 		this.addCommand({ id: "start", name: "Start recording…", checkCallback: (check) => !this.rec && (check || this.pick(), true) });
+		this.app.workspace.onLayoutReady(() => void this.recover());
 		this.addCommand({ id: "stop", name: "Stop recording", checkCallback: (check) => !!this.rec && (check || void this.stop(), true) });
 	}
 
@@ -57,13 +59,18 @@ export default class CapSort extends Plugin {
 		cap.warnings.forEach((w) => new Notice(w));
 		const mp3 = c.mp3 && cap.stream.getAudioTracks().length > 0;
 		if (c.mp3 && !mp3) new Notice("No audio to save as MP3: the microphone and system audio are both off.");
+		const temp = await TempRecording.start(this.app.vault.adapter, this.patch, this.tmpDir(), {
+			base: fileName(new Date()), folder: normalizePath(this.settings.folder || "/"), format: c.format, mp3, startedAt: Date.now(),
+		});
+		temp.onError = (e) => new Notice(`cap-sort can't write the recording: ${errText(e)}`);
 		try {
-			this.rec = await record(cap, this.settings.fps, { format: c.format, mp3 });
+			this.rec = await record(cap, this.settings.fps, { format: c.format, mp3 }, { video: (b) => temp.writeVideo(b), audio: (b) => temp.writeAudio(b) });
 		} catch (e) {
 			cap.stop();
+			await temp.discard();
 			throw e;
 		}
-		this.format = c.format;
+		this.temp = temp;
 		void cap.ended.then(() => { if (this.rec) void this.stop(); }); // window closed, display unplugged
 
 		const t0 = Date.now();
@@ -84,30 +91,39 @@ export default class CapSort extends Plugin {
 	}
 
 	private async stop() {
-		const rec = this.rec;
-		if (!rec) return;
+		const rec = this.rec, temp = this.temp;
+		if (!rec || !temp) return;
 		this.cleanup();
 		try {
-			const out = await rec.stop();
-			const paths = await this.save(out);
+			let early: unknown;
+			const ms = await rec.stop().catch((e: unknown) => { early = e; return undefined; });
+			const paths = await temp.finish(ms); // an encoder failure still keeps what came before it
 			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 			if (this.settings.embed && view) view.editor.replaceSelection(paths.map((p) => `![[${p}]]\n`).join(""));
-			new Notice(`Saved ${paths.join(" and ")}`);
+			new Notice(early ? `Recording stopped early (${errText(early)}). Saved ${paths.join(" and ")}` : `Saved ${paths.join(" and ")}`);
 		} catch (e) {
 			new Notice(`Couldn't save recording: ${errText(e)}`);
 		}
 	}
 
-	private async save(out: { video: Blob; audio?: Blob }): Promise<string[]> {
-		const p = outputPaths(this.settings.folder, fileName(new Date()), this.format, !!out.audio);
-		for (const dir of [this.settings.folder, p.dir]) {
-			const folder = normalizePath(dir || "/");
-			if (folder !== "/" && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+	/** Recordings live here while they run; see src/store.ts. */
+	private tmpDir = () => normalizePath(`${this.manifest.dir}/tmp`);
+
+	private async recover() {
+		try {
+			const paths = await recover(this.app.vault.adapter, this.patch, this.tmpDir());
+			if (paths.length) new Notice(`cap-sort recovered an unfinished recording: ${paths.join(", ")}`, 0);
+		} catch (e) {
+			new Notice(`cap-sort couldn't recover an unfinished recording: ${errText(e)}`);
 		}
-		const files: [string, Blob][] = [[p.video, out.video], ...(p.audio && out.audio ? [[p.audio, out.audio] as [string, Blob]] : [])];
-		for (const [path, blob] of files) await this.app.vault.createBinary(normalizePath(path), await blob.arrayBuffer());
-		return files.map(([path]) => normalizePath(path));
 	}
+
+	/** Writes the WebM duration in place: 8 bytes at a known offset, so a 3-hour file is never read back. */
+	private patch: Patch = async (path, offset, bytes) => {
+		const base = (this.app.vault.adapter as FileSystemAdapter).getBasePath();
+		const file = await fs().promises.open(`${base}/${path}`, "r+");
+		try { await file.write(bytes, 0, bytes.length, offset); } finally { await file.close(); }
+	};
 
 	/** While recording, hovering an action icon shows what is being captured. */
 	private hoverPreview(el: HTMLElement, stream: MediaStream) {
@@ -156,6 +172,7 @@ export default class CapSort extends Plugin {
 
 	private cleanup() {
 		this.rec = undefined;
+		this.temp = undefined;
 		this.unpreview.splice(0).forEach((f) => f());
 		window.clearInterval(this.timer);
 		this.statusEl?.remove();
@@ -175,7 +192,7 @@ class CapSortSettings extends PluginSettingTab {
 			{ name: "Show cursor by default", desc: "You can still change it in the picker before each recording.", control: { type: "toggle", key: "showCursor", defaultValue: DEFAULTS.showCursor } },
 			{ name: "Record microphone", desc: "On by default. You can change it in the picker too.", control: { type: "toggle", key: "mic", defaultValue: DEFAULTS.mic } },
 			{ name: "Record system audio", desc: "Sound from apps. Works on macOS 13+ and Windows.", control: { type: "toggle", key: "systemAudio", defaultValue: DEFAULTS.systemAudio } },
-			{ name: "Format", desc: "WebM gives the smallest files. MP4 (H.264) plays everywhere. You can change it in the picker too.", control: { type: "dropdown", key: "format", options: FORMATS, defaultValue: DEFAULTS.format } },
+			{ name: "Format", desc: "MP4 (H.264) uses the hardware encoder: far less CPU on long recordings, and it plays everywhere. WebM (AV1) gives smaller files but works the CPU harder. You can change it in the picker too.", control: { type: "dropdown", key: "format", options: FORMATS, defaultValue: DEFAULTS.format } },
 			{ name: "Also save audio as MP3", desc: "Splits each recording into a silent video and an MP3, saved together in a folder named after the recording.", control: { type: "toggle", key: "mp3", defaultValue: DEFAULTS.mp3 } },
 			{ name: "Frame rate", control: { type: "dropdown", key: "fps", options: { "15": "15 fps", "30": "30 fps", "60": "60 fps" }, defaultValue: String(DEFAULTS.fps) } },
 			{ name: "Embed in active note", desc: "Insert ![[recording]] at the cursor when you stop.", control: { type: "toggle", key: "embed", defaultValue: DEFAULTS.embed } },

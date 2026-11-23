@@ -26,7 +26,7 @@ Out of scope:
 - System audio comes from Electron's display-media handler (`audio: 'loopback'`), which works on macOS 13+ and Windows. Chromium applies voice processing by default, which mangles music, so it's turned off for system audio.
 - MediaRecorder keeps only one audio track, so mic and system audio are mixed with an `AudioContext`.
 - **Measured:** at the same bitrate target, AV1 and VP9 produce files of about the same size (MediaRecorder sizes by bitrate), and AV1 gives better quality per byte. Size is controlled by capping resolution and bitrate.
-- `MediaRecorder` WebM has no duration in its header, so players can't seek. `fix-webm-duration` patches the header after recording.
+- `MediaRecorder` WebM has no duration in its header, so players can't seek. `fix-webm-duration` patched the header after recording. Since #11 the first chunk gets a placeholder Duration and its 8 bytes are overwritten in place at stop, because recordings are streamed to disk.
 - A region is cropped by drawing the screen video onto a canvas and recording `canvas.captureStream()`. Chromium's Region Capture (`CropTarget`) only works on browser tabs, not screens.
 
 ## 4. Functional Requirements
@@ -48,7 +48,7 @@ Out of scope:
 - NFR-3: The saved file has a duration and can be seeked in Obsidian's video player.
 
 ## 6. Assumptions
-- WebM is the default and only output format (user's choice). MP4 is out of scope.
+- WebM was the only output format for the PoC. MP4 and MP3 were added in #9, and MP4 became the default in #11.
 - "Medium quality" means ≤1920×1200 at ~0.025 bits/pixel/frame. That measured 1.0 to 1.3 Mbps (about 7.5 to 9.5 MB per minute) for a busy full screen.
 - Chromium screen and window IDs map to scap IDs one to one on macOS (`screen:1:0` ↔ display 1, `window:N:0` ↔ CGWindowID N). Windows and Linux mapping is unverified.
 - 30 fps default, adjustable in settings. Screen recordings rarely need more.

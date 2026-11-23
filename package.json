@@ -11,8 +11,7 @@
 	},
 	"license": "MIT",
 	"dependencies": {
-		"@breezystack/lamejs": "^1.2.7",
-		"fix-webm-duration": "^1.0.6"
+		"@breezystack/lamejs": "^1.2.7"
 	},
 	"devDependencies": {
 		"@types/node": "^26.6.6",
