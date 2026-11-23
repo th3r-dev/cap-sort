@@ -1,4 +1,5 @@
 // Pure helpers, kept free of Obsidian/Electron imports so `node --test` can run them.
+import { Mp3Encoder } from "@breezystack/lamejs";
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Size { w: number; h: number }
@@ -41,16 +42,59 @@ export function scaleRect(r: Rect, preview: Size, source: Size): Rect | null {
 	return w < 16 || h < 16 ? null : { x, y, w, h };
 }
 
+/** Base name of a recording, without extension. */
 export function fileName(d: Date): string {
 	const p = (n: number) => String(n).padStart(2, "0");
-	return `cap-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.webm`;
+	return `cap-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-/** Smallest files first: AV1 beats VP9 on quality per byte, VP8 is the last resort. Opus when there's audio. */
-export function pickMimeType(isSupported: (t: string) => boolean, audio: boolean): string {
-	const codecs = ["av01", "vp9", "vp8"].map((v) => `video/webm;codecs=${audio ? `${v},opus` : v}`);
-	return [...codecs, "video/webm"].find(isSupported) ?? "";
+export type Format = "webm" | "mp4";
+export const FORMATS: Record<Format, string> = { webm: "WebM", mp4: "MP4" };
+
+/**
+ * WebM: smallest files first (AV1 beats VP9 on quality per byte, VP8 last). MP4: H.264 + AAC first, the pair
+ * every player opens. "" when nothing fits.
+ */
+export function pickMimeType(isSupported: (t: string) => boolean, audio: boolean, format: Format = "webm"): string {
+	const pairs = format === "mp4"
+		? [["avc1", "mp4a.40.2"], ["avc1", "opus"], ["vp9", "opus"]]
+		: [["av01", "opus"], ["vp9", "opus"], ["vp8", "opus"]];
+	const codecs = pairs.map(([v, a]) => `video/${format};codecs=${audio ? `${v},${a}` : v}`);
+	return [...new Set(codecs), `video/${format}`].find(isSupported) ?? "";
 }
+
+/** Where a recording goes. With MP3 the video and its audio share a folder named after the recording. */
+export function outputPaths(folder: string, base: string, ext: Format, mp3: boolean): { dir?: string; video: string; audio?: string } {
+	if (!mp3) return { video: joinPath(folder, `${base}.${ext}`) };
+	const dir = joinPath(folder, base);
+	return { dir, video: `${dir}/${base}.${ext}`, audio: `${dir}/${base}.mp3` };
+}
+
+/** Streams PCM into MP3 as it records, so memory holds the MP3, not the raw audio. */
+export class Mp3Writer {
+	private enc: Mp3Encoder;
+	private channels: 1 | 2;
+	readonly chunks: Uint8Array[] = [];
+	constructor(channels: 1 | 2, sampleRate: number, kbps = 128) {
+		this.channels = channels;
+		this.enc = new Mp3Encoder(channels, sampleRate, kbps);
+	}
+
+	push(left: Float32Array, right: Float32Array = left) {
+		const out = this.channels === 2 ? this.enc.encodeBuffer(toInt16(left), toInt16(right)) : this.enc.encodeBuffer(toInt16(left));
+		if (out.length) this.chunks.push(bytes(out));
+	}
+
+	finish(): Uint8Array[] {
+		const out = this.enc.flush();
+		if (out.length) this.chunks.push(bytes(out));
+		return this.chunks;
+	}
+}
+
+/** lamejs hands back a reused Int8Array (its typings say Uint8Array): copy it out as bytes. */
+const bytes = (a: ArrayBufferView) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength).slice();
+const toInt16 = (f: Float32Array) => Int16Array.from(f, (v) => clamp(v, -1, 1) * (v < 0 ? 0x8000 : 0x7fff));
 
 /** "Medium" quality for screen content: 0.025 bits per pixel per frame, kept between 250 kbps and 2.5 Mbps. */
 export function videoBitrate(size: Size, fps: number): number {

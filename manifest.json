@@ -1,7 +1,7 @@
 {
 	"id": "cap-sort",
 	"name": "cap-sort",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"minAppVersion": "1.15.0",
 	"description": "Record a screen, one window or a region, with mic and system audio, cursor on or off. Saves small WebM files to your vault and embeds them in the note.",
 	"author": "th3r-dev",
