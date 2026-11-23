@@ -1,0 +1,23 @@
+# Weekly version updates. Security updates for alerts are turned on in the repository settings and open their own PRs.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: dev
+    schedule: { interval: weekly }
+    groups:
+      npm-minor-patch: { update-types: [minor, patch] }
+  - package-ecosystem: cargo
+    directory: /helper
+    target-branch: dev
+    schedule: { interval: weekly }
+    ignore:
+      - dependency-name: scap # vendored with cap-sort patches (helper/vendor/scap); update by hand
+    groups:
+      cargo-minor-patch: { update-types: [minor, patch] }
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }

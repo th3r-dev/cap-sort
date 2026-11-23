@@ -1,6 +1,6 @@
 import fixWebmDuration from "fix-webm-duration";
 import { childProcess } from "./node.ts";
-import { AUDIO_BITRATE, FrameParser, pickMimeType, scaleRect, videoBitrate, type Rect, type Remote, type Size } from "./util.ts";
+import { AUDIO_BITRATE, FrameParser, errText, Mp3Writer, pickMimeType, scaleRect, videoBitrate, type Format, type Rect, type Remote, type Size } from "./util.ts";
 
 export interface Source { id: string; name: string; thumb: string; kind: "screen" | "window" }
 
@@ -171,32 +171,83 @@ function mixAudio(tracks: MediaStreamTrack[]): { track: MediaStreamTrack; stop()
 	return { track: dest.stream.getAudioTracks()[0], stop: () => void ctx.close() };
 }
 
-export interface Recording { stop: () => Promise<Blob> }
+export interface Recording { stop: () => Promise<{ video: Blob; audio?: Blob }> }
 
-export function record(c: Capture, fps: number): Recording {
-	const audio = c.stream.getAudioTracks().length > 0;
-	const mimeType = pickMimeType((t) => MediaRecorder.isTypeSupported(t), audio);
-	const rec = new MediaRecorder(c.stream, {
-		...(mimeType ? { mimeType } : {}),
+/** With `mp3` the audio goes to its own MP3 and the video is recorded silent. */
+export async function record(c: Capture, fps: number, o: { format: Format; mp3: boolean }): Promise<Recording> {
+	const audioTrack = c.stream.getAudioTracks()[0] as MediaStreamTrack | undefined;
+	const mp3 = o.mp3 && audioTrack ? await mp3Tap(audioTrack) : null;
+	const stream = mp3 ? new MediaStream(c.stream.getVideoTracks()) : c.stream;
+	const audio = stream.getAudioTracks().length > 0;
+	const mimeType = pickMimeType((t) => MediaRecorder.isTypeSupported(t), audio, o.format);
+	if (!mimeType) {
+		mp3?.stop();
+		throw new Error(`${o.format.toUpperCase()} recording isn't supported by this version of Obsidian. Switch the format to WebM.`);
+	}
+	const rec = new MediaRecorder(stream, {
+		mimeType,
 		videoBitsPerSecond: videoBitrate(c.size, fps),
-		...(audio ? { audioBitsPerSecond: AUDIO_BITRATE } : {}),
+		// Chromium's AAC encoder fails ("Internal Error") below 96 kbps; Opus is fine at 64.
+		...(audio ? { audioBitsPerSecond: mimeType.includes("mp4a") ? 128_000 : AUDIO_BITRATE } : {}),
 	});
 	const chunks: Blob[] = [];
+	let failed: unknown;
+	rec.onerror = (e) => { failed = e.error ?? e; };
 	const t0 = Date.now();
 	rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-	const done = new Promise<Blob>((resolve) => {
+	const done = new Promise<Blob>((resolve, reject) => {
 		rec.onstop = async () => {
-			const blob = new Blob(chunks, { type: rec.mimeType || "video/webm" });
-			// MediaRecorder leaves Duration out of the WebM header, so players can't seek without this.
-			resolve(await fixWebmDuration(blob, Date.now() - t0, { logger: false }));
+			if (failed) return reject(new Error(`the ${o.format.toUpperCase()} encoder stopped: ${errText(failed)}`));
+			const blob = new Blob(chunks, { type: rec.mimeType || mimeType });
+			// MediaRecorder leaves Duration out of the WebM header, so players can't seek without this. MP4 has it.
+			resolve(o.format === "webm" ? await fixWebmDuration(blob, Date.now() - t0, { logger: false }) : blob);
 		};
 	});
 	rec.start(1000);
 	return {
-		stop: () => {
+		stop: async () => {
 			if (rec.state !== "inactive") rec.stop();
+			const audio = mp3?.stop();
 			c.stop();
-			return done;
+			return { video: await done, audio };
+		},
+	};
+}
+
+// Runs on the audio thread and hands each 128-frame block (left, right) to the page.
+const PCM_WORKLET = `registerProcessor("cap-sort-pcm", class extends AudioWorkletProcessor {
+	process([input]) {
+		if (input?.length) this.port.postMessage([input[0].slice(), (input[1] ?? input[0]).slice()]);
+		return true;
+	}
+});`;
+
+/** Encodes an audio track to MP3 while it plays. */
+async function mp3Tap(track: MediaStreamTrack): Promise<{ stop(): Blob }> {
+	const ctx = new AudioContext();
+	const url = URL.createObjectURL(new Blob([PCM_WORKLET], { type: "text/javascript" }));
+	try {
+		await ctx.audioWorklet.addModule(url);
+	} catch (e) {
+		void ctx.close();
+		throw e;
+	} finally {
+		URL.revokeObjectURL(url);
+	}
+	const src = ctx.createMediaStreamSource(new MediaStream([track]));
+	// Two channels, explicit: a mono mic is up-mixed, so the encoder always gets stereo.
+	const node = new AudioWorkletNode(ctx, "cap-sort-pcm", { channelCount: 2, channelCountMode: "explicit" });
+	const writer = new Mp3Writer(2, ctx.sampleRate);
+	node.port.onmessage = (e: MessageEvent<[Float32Array, Float32Array]>) => writer.push(e.data[0], e.data[1]);
+	src.connect(node);
+	node.connect(ctx.destination); // outputs silence; keeps the node in the rendered graph
+	return {
+		stop: () => {
+			node.port.onmessage = null;
+			src.disconnect();
+			node.disconnect();
+			void ctx.close();
+			return new Blob(writer.finish() as BlobPart[], { type: "audio/mpeg" });
 		},
 	};
 }

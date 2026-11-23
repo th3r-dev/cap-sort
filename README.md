@@ -11,7 +11,7 @@
   <a href="https://github.com/sponsors/th3r-dev">Sponsor</a>
 </p>
 
-Screen recorder for Obsidian desktop. Record a whole screen, one app window, or a region you draw. Your mic and system audio are recorded too, and the video lands in your vault as a WebM file, embedded in the note you're working on.
+Screen recorder for Obsidian desktop. Record a whole screen, one app window, or a region you draw. Your mic and system audio are recorded too, and the video lands in your vault as a WebM or MP4 file, embedded in the note you're working on.
 
 The [project site](https://th3r-dev.github.io/cap-sort/) has a working copy of the plugin's interface. Click through a recording there and a side panel explains what the plugin does at each step.
 
@@ -20,15 +20,16 @@ The [project site](https://th3r-dev.github.io/cap-sort/) has a working copy of t
 - Pick a screen or window from thumbnails. For a region, pick a screen and drag a rectangle over its preview.
 - Record with the cursor or without it. Leaving it out needs a small helper program (see below).
 - Microphone and system audio are both on by default and mixed into one track. System audio works on macOS 13+ and Windows; on Linux only the mic is recorded.
-- Video is capped at 1920×1200 and encoded with AV1 when available (VP9 or VP8 otherwise), with Opus audio at 64 kbps. A busy full-screen recording comes out at roughly 7.5 to 9.5 MB per minute.
-- Files are saved as `Recordings/cap-YYYYMMDD-HHmmss.webm` (the folder is configurable) and inserted as `![[…]]` at your cursor.
-- While recording, a red timer sits in the status bar. Click it to stop.
+- Video is capped at 1920×1200. **WebM** (the default) uses AV1 when available (VP9 or VP8 otherwise) with Opus audio at 64 kbps; a busy full-screen recording comes out at roughly 7.5 to 9.5 MB per minute. **MP4** uses H.264 with AAC audio at 128 kbps and plays in almost any player, at a larger size.
+- Files are saved as `Recordings/cap-YYYYMMDD-HHmmss.webm` (or `.mp4`; the folder is configurable) and inserted as `![[…]]` at your cursor.
+- Turn on **MP3 too** and the recording is split: a silent video and an MP3 of the audio (128 kbps stereo), saved together as `Recordings/cap-YYYYMMDD-HHmmss/cap-YYYYMMDD-HHmmss.webm` and `….mp3`. Both are embedded.
+- While recording, a red timer sits in the status bar. Click it to stop. Hover it, or the ribbon icon, to see a live preview of what is being recorded.
 
 ## Use
 
 1. Click the camera icon in the left ribbon, or run **cap-sort: Start recording…** from the command palette.
 2. Choose **Screen**, **Window** or **Region**, then pick a source.
-3. Set **Cursor**, **Microphone** and **System audio**.
+3. Set **Cursor**, **Microphone**, **System audio**, **MP3 too** and the format (WebM or MP4). The defaults come from the plugin settings.
 4. Click **Start recording**. To stop, click the red timer in the status bar, click the ribbon icon again, or run **cap-sort: Stop recording**.
 
 ### macOS permissions
@@ -100,6 +101,6 @@ Tested on macOS 27.3 with Obsidian 1.15.1: screen, window and region capture, cu
 
 ## Support
 
-Found a bug? [Open an issue](https://github.com/th3r-dev/cap-sort/issues). If cap-sort saves you time, you can [sponsor its development](https://github.com/sponsors/th3r-dev).
+Found a bug? [Open an issue](https://github.com/th3r-dev/cap-sort/issues). Found a security problem? Report it privately, as [SECURITY.md](SECURITY.md) describes. If cap-sort saves you time, you can [sponsor its development](https://github.com/sponsors/th3r-dev).
 
-MIT licensed.
+MIT licensed. MP3 encoding is done by [@breezystack/lamejs](https://github.com/breezystack/lamejs), a JavaScript port of LAME, licensed LGPL-3.0 and bundled into `main.js`. To use a modified version, change it in `node_modules` and run `npm run build`.
