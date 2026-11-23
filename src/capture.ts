@@ -1,4 +1,3 @@
-import fixWebmDuration from "fix-webm-duration";
 import { childProcess } from "./node.ts";
 import { AUDIO_BITRATE, FrameParser, errText, Mp3Writer, pickMimeType, scaleRect, videoBitrate, type Format, type Rect, type Remote, type Size } from "./util.ts";
 
@@ -171,12 +170,18 @@ function mixAudio(tracks: MediaStreamTrack[]): { track: MediaStreamTrack; stop()
 	return { track: dest.stream.getAudioTracks()[0], stop: () => void ctx.close() };
 }
 
-export interface Recording { stop: () => Promise<{ video: Blob; audio?: Blob }> }
+export interface Recording {
+	/** Resolves with the duration in ms once the last chunk has been handed to the sink. */
+	stop: () => Promise<number>;
+}
+
+/** Where encoded data goes as it's produced. Nothing is kept here, so memory doesn't grow with length. */
+export interface Sink { video(chunk: Blob): void; audio(bytes: Uint8Array): void }
 
 /** With `mp3` the audio goes to its own MP3 and the video is recorded silent. */
-export async function record(c: Capture, fps: number, o: { format: Format; mp3: boolean }): Promise<Recording> {
+export async function record(c: Capture, fps: number, o: { format: Format; mp3: boolean }, sink: Sink): Promise<Recording> {
 	const audioTrack = c.stream.getAudioTracks()[0] as MediaStreamTrack | undefined;
-	const mp3 = o.mp3 && audioTrack ? await mp3Tap(audioTrack) : null;
+	const mp3 = o.mp3 && audioTrack ? await mp3Tap(audioTrack, (b) => sink.audio(b)) : null;
 	const stream = mp3 ? new MediaStream(c.stream.getVideoTracks()) : c.stream;
 	const audio = stream.getAudioTracks().length > 0;
 	const mimeType = pickMimeType((t) => MediaRecorder.isTypeSupported(t), audio, o.format);
@@ -190,26 +195,23 @@ export async function record(c: Capture, fps: number, o: { format: Format; mp3: 
 		// Chromium's AAC encoder fails ("Internal Error") below 96 kbps; Opus is fine at 64.
 		...(audio ? { audioBitsPerSecond: mimeType.includes("mp4a") ? 128_000 : AUDIO_BITRATE } : {}),
 	});
-	const chunks: Blob[] = [];
 	let failed: unknown;
 	rec.onerror = (e) => { failed = e.error ?? e; };
+	rec.ondataavailable = (e) => { if (e.data.size) sink.video(e.data); };
 	const t0 = Date.now();
-	rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-	const done = new Promise<Blob>((resolve, reject) => {
-		rec.onstop = async () => {
-			if (failed) return reject(new Error(`the ${o.format.toUpperCase()} encoder stopped: ${errText(failed)}`));
-			const blob = new Blob(chunks, { type: rec.mimeType || mimeType });
-			// MediaRecorder leaves Duration out of the WebM header, so players can't seek without this. MP4 has it.
-			resolve(o.format === "webm" ? await fixWebmDuration(blob, Date.now() - t0, { logger: false }) : blob);
-		};
+	const done = new Promise<number>((resolve, reject) => {
+		rec.onstop = () => failed
+			? reject(new Error(`the ${o.format.toUpperCase()} encoder stopped: ${errText(failed)}`))
+			: resolve(Date.now() - t0);
 	});
+	// 1 s chunks: a crash loses at most the last second. MP4 comes out fragmented, so a cut-off file still plays.
 	rec.start(1000);
 	return {
 		stop: async () => {
 			if (rec.state !== "inactive") rec.stop();
-			const audio = mp3?.stop();
+			mp3?.stop();
 			c.stop();
-			return { video: await done, audio };
+			return done;
 		},
 	};
 }
@@ -222,8 +224,8 @@ const PCM_WORKLET = `registerProcessor("cap-sort-pcm", class extends AudioWorkle
 	}
 });`;
 
-/** Encodes an audio track to MP3 while it plays. */
-async function mp3Tap(track: MediaStreamTrack): Promise<{ stop(): Blob }> {
+/** Encodes an audio track to MP3 while it plays, handing the bytes over once a second. */
+async function mp3Tap(track: MediaStreamTrack, out: (bytes: Uint8Array) => void): Promise<{ stop(): void }> {
 	const ctx = new AudioContext();
 	const url = URL.createObjectURL(new Blob([PCM_WORKLET], { type: "text/javascript" }));
 	try {
@@ -241,13 +243,15 @@ async function mp3Tap(track: MediaStreamTrack): Promise<{ stop(): Blob }> {
 	node.port.onmessage = (e: MessageEvent<[Float32Array, Float32Array]>) => writer.push(e.data[0], e.data[1]);
 	src.connect(node);
 	node.connect(ctx.destination); // outputs silence; keeps the node in the rendered graph
+	const flush = window.setInterval(() => out(writer.take()), 1000);
 	return {
 		stop: () => {
+			window.clearInterval(flush);
 			node.port.onmessage = null;
 			src.disconnect();
 			node.disconnect();
 			void ctx.close();
-			return new Blob(writer.finish() as BlobPart[], { type: "audio/mpeg" });
+			out(writer.finish());
 		},
 	};
 }
