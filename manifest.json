@@ -3,7 +3,7 @@
 	"name": "cap-sort",
 	"version": "0.2.0",
 	"minAppVersion": "1.15.0",
-	"description": "Record a screen, one window or a region, with mic and system audio, cursor on or off. Saves small WebM files to your vault and embeds them in the note.",
+	"description": "Record a screen, one window or a region, with mic and system audio, cursor on or off. Saves MP4 or WebM to your vault, with an optional MP3 of the audio, and embeds it in the note.",
 	"author": "th3r-dev",
 	"authorUrl": "https://github.com/th3r-dev",
 	"fundingUrl": "https://github.com/sponsors/th3r-dev",
