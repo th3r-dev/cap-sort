@@ -1,4 +1,5 @@
 // Pure helpers, kept free of Obsidian/Electron imports so `node --test` can run them.
+import { Mp3Encoder } from "@breezystack/lamejs";
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Size { w: number; h: number }
@@ -41,16 +42,145 @@ export function scaleRect(r: Rect, preview: Size, source: Size): Rect | null {
 	return w < 16 || h < 16 ? null : { x, y, w, h };
 }
 
+/** Base name of a recording, without extension. */
 export function fileName(d: Date): string {
 	const p = (n: number) => String(n).padStart(2, "0");
-	return `cap-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.webm`;
+	return `cap-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-/** Smallest files first: AV1 beats VP9 on quality per byte, VP8 is the last resort. Opus when there's audio. */
-export function pickMimeType(isSupported: (t: string) => boolean, audio: boolean): string {
-	const codecs = ["av01", "vp9", "vp8"].map((v) => `video/webm;codecs=${audio ? `${v},opus` : v}`);
-	return [...codecs, "video/webm"].find(isSupported) ?? "";
+export type Format = "webm" | "mp4";
+export const FORMATS: Record<Format, string> = { webm: "WebM", mp4: "MP4" };
+
+/**
+ * WebM: smallest files first (AV1 beats VP9 on quality per byte, VP8 last). MP4: H.264 + AAC first, the pair
+ * every player opens. "" when nothing fits.
+ */
+export function pickMimeType(isSupported: (t: string) => boolean, audio: boolean, format: Format = "webm"): string {
+	const pairs = format === "mp4"
+		? [["avc1", "mp4a.40.2"], ["avc1", "opus"], ["vp9", "opus"]]
+		: [["av01", "opus"], ["vp9", "opus"], ["vp8", "opus"]];
+	const codecs = pairs.map(([v, a]) => `video/${format};codecs=${audio ? `${v},${a}` : v}`);
+	return [...new Set(codecs), `video/${format}`].find(isSupported) ?? "";
 }
+
+/** Where a recording goes. With MP3 the video and its audio share a folder named after the recording. */
+export function outputPaths(folder: string, base: string, ext: Format, mp3: boolean): { dir?: string; video: string; audio?: string } {
+	if (!mp3) return { video: joinPath(folder, `${base}.${ext}`) };
+	const dir = joinPath(folder, base);
+	return { dir, video: `${dir}/${base}.${ext}`, audio: `${dir}/${base}.mp3` };
+}
+
+/** Encodes PCM to MP3 as it records. take() hands over what's encoded so far, so nothing piles up. */
+export class Mp3Writer {
+	private enc: Mp3Encoder;
+	private channels: 1 | 2;
+	private chunks: Uint8Array[] = [];
+	constructor(channels: 1 | 2, sampleRate: number, kbps = 128) {
+		this.channels = channels;
+		this.enc = new Mp3Encoder(channels, sampleRate, kbps);
+	}
+
+	push(left: Float32Array, right: Float32Array = left) {
+		const out = this.channels === 2 ? this.enc.encodeBuffer(toInt16(left), toInt16(right)) : this.enc.encodeBuffer(toInt16(left));
+		if (out.length) this.chunks.push(bytes(out));
+	}
+
+	take(): Uint8Array {
+		const out = concat(this.chunks);
+		this.chunks = [];
+		return out;
+	}
+
+	finish(): Uint8Array {
+		const out = this.enc.flush();
+		if (out.length) this.chunks.push(bytes(out));
+		return this.take();
+	}
+}
+
+const concat = (parts: Uint8Array[]) => {
+	const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+	let i = 0;
+	for (const p of parts) { out.set(p, i); i += p.length; }
+	return out;
+};
+
+// ---- WebM duration -------------------------------------------------------------------------------
+// MediaRecorder writes WebM with no Duration, so players can't seek. The file is streamed to disk, so
+// instead of rewriting it at the end, the first chunk gets a placeholder Duration and its 8 bytes are
+// overwritten in place at stop. Only the header (~75 bytes) is ever parsed.
+
+const ID = { segment: 0x18538067, info: 0x1549a966, timecodeScale: 0x2ad7b1, duration: 0x4489 };
+
+/** EBML variable-length int at `i`: its width, and its value (marker bit kept for IDs, dropped for sizes). */
+function vint(b: Uint8Array, i: number, isId: boolean): { w: number; v: number } | null {
+	const first = b[i];
+	if (first === undefined || first === 0) return null;
+	const w = Math.clz32(first) - 23;
+	if (i + w > b.length) return null;
+	let v = isId ? first : first & (0xff >> w);
+	for (let k = 1; k < w; k++) v = v * 256 + b[i + k];
+	if (!isId && v >= 2 ** (7 * w) - 1) v = -1; // all ones: unknown size
+	return { w, v };
+}
+
+/** Where a header puts its Duration: the byte offset of the value and the timecode scale (ns per unit). */
+export interface DurationSlot { offset: number; scale: number }
+
+/**
+ * Adds a placeholder 8-byte Duration to the Info element of a WebM header (the first chunk from
+ * MediaRecorder). Returns the patched bytes and the slot to fill in at stop, or null if the header
+ * isn't the shape MediaRecorder writes (then the file is kept as is, just without a duration).
+ */
+export function addWebmDuration(head: Uint8Array): { bytes: Uint8Array; slot: DurationSlot } | null {
+	let i = 0;
+	// Top level: skip the EBML header, step into the Segment.
+	for (;;) {
+		const id = vint(head, i, true), size = id && vint(head, i + id.w, false);
+		if (!id || !size) return null;
+		if (id.v === ID.segment) { i += id.w + size.w; break; }
+		if (size.v < 0) return null;
+		i += id.w + size.w + size.v;
+	}
+	// Segment children: find Info. The Segment must be unknown-size, or growing Info would break it.
+	for (;;) {
+		const id = vint(head, i, true), size = id && vint(head, i + id.w, false);
+		if (!id || !size || size.v < 0) return null;
+		if (id.v !== ID.info) { i += id.w + size.w + size.v; continue; }
+		const sizeAt = i + id.w, start = sizeAt + size.w, end = start + size.v;
+		if (end > head.length) return null;
+		let scale = 1_000_000;
+		for (let j = start; j < end;) {
+			const cid = vint(head, j, true), csize = cid && vint(head, j + cid.w, false);
+			if (!cid || !csize || csize.v < 0) return null;
+			const at = j + cid.w + csize.w;
+			if (cid.v === ID.timecodeScale) scale = head.subarray(at, at + csize.v).reduce((n, x) => n * 256 + x, 0);
+			if (cid.v === ID.duration) return csize.v === 8 ? { bytes: head, slot: { offset: at, scale } } : null;
+			j = at + csize.v;
+		}
+		const grown = size.v + 11; // 0x44 0x89, size 0x88, 8-byte float
+		if (grown >= 2 ** (7 * size.w) - 1) return null;
+		const out = new Uint8Array(head.length + 11);
+		out.set(head.subarray(0, end));
+		for (let k = size.w - 1, v = grown; k >= 0; k--, v = Math.floor(v / 256)) out[sizeAt + k] = v & 0xff;
+		out[sizeAt] |= 0x80 >> (size.w - 1);
+		out.set([0x44, 0x89, 0x88], end);
+		out.set(webmDuration(0, scale), end + 3);
+		out.set(head.subarray(end), end + 11);
+		return { bytes: out, slot: { offset: end + 3, scale } };
+	}
+}
+
+/** The 8 bytes for a Duration of `ms`, in timecode-scale units, big-endian float64. */
+export function webmDuration(ms: number, scale: number): Uint8Array {
+	const b = new Uint8Array(8);
+	new DataView(b.buffer).setFloat64(0, (ms * 1_000_000) / scale);
+	return b;
+}
+
+/** lamejs hands back a reused Int8Array (its typings say Uint8Array): copy it out as bytes. */
+const bytes = (a: ArrayBufferView) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength).slice();
+const toInt16 = (f: Float32Array) => Int16Array.from(f, (v) => clamp(v, -1, 1) * (v < 0 ? 0x8000 : 0x7fff));
 
 /** "Medium" quality for screen content: 0.025 bits per pixel per frame, kept between 250 kbps and 2.5 Mbps. */
 export function videoBitrate(size: Size, fps: number): number {

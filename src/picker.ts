@@ -1,9 +1,9 @@
 import { App, Modal, Notice, Platform, setIcon } from "obsidian";
 import { listSources, type Source } from "./capture.ts";
 import type { Settings } from "./main.ts";
-import { errText, type Rect, type Remote, type Size } from "./util.ts";
+import { FORMATS, errText, type Format, type Rect, type Remote, type Size } from "./util.ts";
 
-export interface Choice { source: Source; showCursor: boolean; mic: boolean; systemAudio: boolean; rect?: Rect; preview?: Size }
+export interface Choice { source: Source; showCursor: boolean; mic: boolean; systemAudio: boolean; format: Format; mp3: boolean; rect?: Rect; preview?: Size }
 export interface Helper { path: string; exists(): boolean; download(): Promise<void> }
 type Tab = "screen" | "window" | "region";
 
@@ -45,10 +45,12 @@ export class PickerModal extends Modal {
 	private showCursor: boolean;
 	private mic: boolean;
 	private systemAudio: boolean;
+	private format: Format;
+	private mp3: boolean;
 
 	constructor(app: App, private remote: Remote, cfg: Settings, private helper: Helper, private onPick: (c: Choice) => void) {
 		super(app);
-		({ showCursor: this.showCursor, mic: this.mic, systemAudio: this.systemAudio } = cfg);
+		({ showCursor: this.showCursor, mic: this.mic, systemAudio: this.systemAudio, format: this.format, mp3: this.mp3 } = cfg);
 	}
 
 	onOpen() {
@@ -71,6 +73,11 @@ export class PickerModal extends Modal {
 		this.toggle(opts, "Cursor", ["mouse-pointer-2", "mouse-pointer-ban"], this.showCursor, (v) => { this.showCursor = v; this.refresh(); });
 		this.toggle(opts, "Microphone", ["mic", "mic-off"], this.mic, (v) => (this.mic = v));
 		this.toggle(opts, "System audio", ["volume-2", "volume-x"], this.systemAudio, (v) => (this.systemAudio = v));
+		this.toggle(opts, "MP3 too", ["file-audio", "file-x"], this.mp3, (v) => (this.mp3 = v));
+		const fmt = opts.createEl("select", { cls: "dropdown cap-sort-format", attr: { "aria-label": "Video format" } });
+		for (const [value, text] of Object.entries(FORMATS)) fmt.createEl("option", { value, text });
+		fmt.value = this.format;
+		fmt.onchange = () => (this.format = fmt.value as Format);
 		this.helperNote = contentEl.createDiv("cap-sort-helper-note");
 
 		const footer = contentEl.createDiv("cap-sort-footer");
@@ -83,7 +90,7 @@ export class PickerModal extends Modal {
 		this.recordBtn.onclick = () => {
 			if (!this.picked) return;
 			this.close();
-			this.onPick({ source: this.picked, showCursor: this.showCursor, mic: this.mic, systemAudio: this.systemAudio, rect: this.rect, preview: this.preview });
+			this.onPick({ source: this.picked, showCursor: this.showCursor, mic: this.mic, systemAudio: this.systemAudio, format: this.format, mp3: this.mp3, rect: this.rect, preview: this.preview });
 		};
 
 		void this.show(this.tab);

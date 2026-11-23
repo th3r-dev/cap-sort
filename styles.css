@@ -98,3 +98,21 @@
 .side-dock-ribbon-action.cap-sort-recording { color: var(--color-red); }
 @keyframes cap-sort-pulse { 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) { .cap-sort-dot { animation: none; } }
+
+/* Format picker sits with the option toggles. */
+.cap-sort-format { margin-inline-start: auto; }
+
+/* Live preview while recording, shown when hovering the ribbon button or the REC status item. */
+.cap-sort-preview {
+	position: fixed; z-index: var(--layer-tooltip); pointer-events: none;
+	left: var(--cap-sort-px); top: var(--cap-sort-py); width: 320px;
+	background: var(--background-secondary); border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m); box-shadow: var(--shadow-l); overflow: hidden;
+}
+.cap-sort-preview.is-above { left: auto; top: auto; right: var(--cap-sort-px); bottom: var(--cap-sort-py); }
+.cap-sort-preview video { display: block; width: 100%; max-height: 240px; object-fit: contain; background: #000; }
+.cap-sort-preview-badge {
+	position: absolute; top: var(--size-4-2); left: var(--size-4-2); padding: 0 var(--size-4-1);
+	font-size: var(--font-ui-smaller); font-weight: var(--font-semibold); color: #fff;
+	background: var(--color-red); border-radius: var(--radius-s);
+}

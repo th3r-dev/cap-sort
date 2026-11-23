@@ -34,6 +34,18 @@ Unit tests live in `src/util.test.ts` and run with `npm test` (`node --test`). E
 | T-26 | FR-10 | Mic + system audio on | manual | `ffprobe` shows an Opus stream with non-silent audio |
 | T-27 | FR-5  | Window capture via helper on macOS | manual | Works for another app's window (was SCStream −3812 before the scap patch) |
 | T-28 | UI    | Window 520 px wide | manual | Tabs stretch, toggles wrap, Start goes full width, links centred |
+| T-29 | #9    | `pickMimeType` for MP4 | unit | H.264 + AAC first, then H.264 + Opus, VP9 + Opus, bare `video/mp4`; "" when none |
+| T-30 | #9    | `outputPaths` | unit | Flat file without MP3; `<folder>/<name>/<name>.<ext>` + `.mp3` with it |
+| T-31 | #9    | `Mp3Writer` on a 1 s sine | unit | > 10 KB, starts with an MPEG frame sync |
+| T-32 | #9    | `record()` in Chromium 151: WebM, MP4, MP4 + MP3, WebM + MP3 | scripted (Playwright) | All decode at ~2.0 s; MP3 starts `ff fb`; video is silent when MP3 is on |
+| T-33 | #9    | AAC at 64 kbps | scripted | Chromium's encoder fails with "Internal Error", so MP4 uses 128 kbps and `stop()` rejects on encoder errors |
+| T-34 | #9    | Hover the ribbon icon / REC timer while recording | manual | Live preview beside the ribbon, above the timer; gone on leave and after stop |
+| T-35 | #9    | Record MP4, and WebM + MP3, in Obsidian | manual | Files play in Obsidian; MP3 split lands in its own folder; both embedded |
+| T-36 | #11   | `addWebmDuration` on Chromium's real header | unit | Info grows 25 → 36 bytes, slot points at the 8 placeholder bytes, the rest untouched; second call reuses the slot; MP4, cut-off or known-size Segment → null |
+| T-37 | #11   | `TempRecording` stop: WebM + MP3, MP4 | unit (real disk) | Chunks in order, duration patched in place, files moved, temp folder gone |
+| T-38 | #11   | `recover()` after a crash | unit (real disk) | Duration from the last write; empty recordings dropped; taken names get `-2`; a failed write is reported once and the files stay |
+| T-39 | #11   | Real `record()` + `TempRecording` in Chromium, stop after 8 s | scripted + ffprobe | WebM 8.006 s from the patched header, 0 decode errors; MP4 8.02 s, all 241 frames; MP3 8.04 s |
+| T-40 | #11   | Same, browser SIGKILLed at 6.5 s, then `recover()` | scripted + ffprobe | WebM 6.18 s (1 error: the cut-off last block), MP3 5.98 s, MP4 4.20 s, all complete fragments; temp folder empty |
 
 ## Results on macOS 27.3 / Obsidian 1.15.1 (2026-11-16)
 

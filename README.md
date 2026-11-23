@@ -11,7 +11,7 @@
   <a href="https://github.com/sponsors/th3r-dev">Sponsor</a>
 </p>
 
-Screen recorder for Obsidian desktop. Record a whole screen, one app window, or a region you draw. Your mic and system audio are recorded too, and the video lands in your vault as a WebM file, embedded in the note you're working on.
+Screen recorder for Obsidian desktop. Record a whole screen, one app window, or a region you draw. Your mic and system audio are recorded too, and the video lands in your vault as a WebM or MP4 file, embedded in the note you're working on.
 
 The [project site](https://th3r-dev.github.io/cap-sort/) has a working copy of the plugin's interface. Click through a recording there and a side panel explains what the plugin does at each step.
 
@@ -20,15 +20,17 @@ The [project site](https://th3r-dev.github.io/cap-sort/) has a working copy of t
 - Pick a screen or window from thumbnails. For a region, pick a screen and drag a rectangle over its preview.
 - Record with the cursor or without it. Leaving it out needs a small helper program (see below).
 - Microphone and system audio are both on by default and mixed into one track. System audio works on macOS 13+ and Windows; on Linux only the mic is recorded.
-- Video is capped at 1920×1200 and encoded with AV1 when available (VP9 or VP8 otherwise), with Opus audio at 64 kbps. A busy full-screen recording comes out at roughly 7.5 to 9.5 MB per minute.
-- Files are saved as `Recordings/cap-YYYYMMDD-HHmmss.webm` (the folder is configurable) and inserted as `![[…]]` at your cursor.
-- While recording, a red timer sits in the status bar. Click it to stop.
+- Video is capped at 1920×1200. **MP4** (the default) uses H.264, which runs on the hardware encoder: on 1080p screen content it took about a quarter of the CPU that AV1 did, so hour-long recordings don't heat the machine up. Audio is AAC at 128 kbps, and it plays in almost any player. **WebM** uses AV1 when available (VP9 or VP8 otherwise) with Opus audio at 64 kbps. It's encoded on the CPU and can come out smaller.
+- Files are saved as `Recordings/cap-YYYYMMDD-HHmmss.mp4` (or `.webm`; the folder is configurable) and inserted as `![[…]]` at your cursor.
+- Recordings are written to disk every second while they run, so memory use stays flat and stopping is instant, even after three hours. If Obsidian crashes or is force-closed mid-recording, the next start finishes the file and puts it in your recordings folder; at most the last second or two is lost.
+- Turn on **MP3 too** and the recording is split: a silent video and an MP3 of the audio (128 kbps stereo), saved together as `Recordings/cap-YYYYMMDD-HHmmss/cap-YYYYMMDD-HHmmss.mp4` and `….mp3`. Both are embedded.
+- While recording, a red timer sits in the status bar. Click it to stop. Hover it, or the ribbon icon, to see a live preview of what is being recorded.
 
 ## Use
 
 1. Click the camera icon in the left ribbon, or run **cap-sort: Start recording…** from the command palette.
 2. Choose **Screen**, **Window** or **Region**, then pick a source.
-3. Set **Cursor**, **Microphone** and **System audio**.
+3. Set **Cursor**, **Microphone**, **System audio**, **MP3 too** and the format (MP4 or WebM). The defaults come from the plugin settings.
 4. Click **Start recording**. To stop, click the red timer in the status bar, click the ribbon icon again, or run **cap-sort: Stop recording**.
 
 ### macOS permissions
@@ -45,10 +47,10 @@ The helper's source is in [`helper/`](helper/), and the release binaries are bui
 
 ### What the plugin can access
 
-The community review lists two capabilities for cap-sort. Both exist only for the cursor helper:
+The community review lists two capabilities for cap-sort:
 
 - Shell execution (`child_process`): starts the downloaded helper from the plugin's `bin/` folder with fixed arguments (`capture <screen|window> <id> --fps <n> --max-width 1920`), and only when you record with the cursor off. It runs nothing else.
-- File system outside the vault API (`fs`): checks whether the helper is installed, creates `.obsidian/plugins/cap-sort/bin/`, and writes the helper there with execute permission. Recordings are saved through Obsidian's vault API like any other file.
+- File system outside the vault API (`fs`): checks whether the helper is installed, creates `.obsidian/plugins/cap-sort/bin/`, and writes the helper there with execute permission. For WebM recordings it also overwrites 8 bytes in the file's header at stop (the duration, so players can seek), because the vault API can't write at an offset. Everything else, including writing recordings to `.obsidian/plugins/cap-sort/tmp/` while they run and moving them into your folder, goes through Obsidian's vault API.
 
 The release assets and the helper binaries carry GitHub [artifact attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds), so you can check they were built from this repository: `gh attestation verify main.js --repo th3r-dev/cap-sort`.
 
@@ -100,6 +102,6 @@ Tested on macOS 27.3 with Obsidian 1.15.1: screen, window and region capture, cu
 
 ## Support
 
-Found a bug? [Open an issue](https://github.com/th3r-dev/cap-sort/issues). If cap-sort saves you time, you can [sponsor its development](https://github.com/sponsors/th3r-dev).
+Found a bug? [Open an issue](https://github.com/th3r-dev/cap-sort/issues). Found a security problem? Report it privately, as [SECURITY.md](SECURITY.md) describes. If cap-sort saves you time, you can [sponsor its development](https://github.com/sponsors/th3r-dev).
 
-MIT licensed.
+MIT licensed. MP3 encoding is done by [@breezystack/lamejs](https://github.com/breezystack/lamejs), a JavaScript port of LAME, licensed LGPL-3.0 and bundled into `main.js`. To use a modified version, change it in `node_modules` and run `npm run build`.
