@@ -70,14 +70,17 @@ export class PickerModal extends Modal {
 
 		// Icon toggles: the icon itself shows on/off (mic vs mic-off), the label says what it controls.
 		const opts = contentEl.createDiv({ cls: "cap-sort-options", attr: { role: "group", "aria-label": "Recording options" } });
-		this.toggle(opts, "Cursor", ["mouse-pointer-2", "mouse-pointer-ban"], this.showCursor, (v) => { this.showCursor = v; this.refresh(); });
-		this.toggle(opts, "Microphone", ["mic", "mic-off"], this.mic, (v) => (this.mic = v));
-		this.toggle(opts, "System audio", ["volume-2", "volume-x"], this.systemAudio, (v) => (this.systemAudio = v));
-		this.toggle(opts, "MP3 too", ["file-audio", "file-x"], this.mp3, (v) => (this.mp3 = v));
-		const fmt = opts.createEl("select", { cls: "dropdown cap-sort-format", attr: { "aria-label": "Video format" } });
+		const cursor = this.toggle(opts, "Cursor", ["mouse-pointer-2", "mouse-pointer-ban"], this.showCursor, (v) => { this.showCursor = v; this.refresh(); });
+		this.toggle(opts, "Microphone", ["mic", "mic-off"], this.mic, (v) => { this.mic = v; this.refresh(); });
+		this.toggle(opts, "System audio", ["volume-2", "volume-x"], this.systemAudio, (v) => { this.systemAudio = v; this.refresh(); });
+		const mp3Too = this.toggle(opts, "MP3 too", ["file-audio", "file-x"], this.mp3, (v) => (this.mp3 = v));
+		const fmt = opts.createEl("select", { cls: "dropdown cap-sort-format", attr: { "aria-label": "Format" } });
 		for (const [value, text] of Object.entries(FORMATS)) fmt.createEl("option", { value, text });
 		fmt.value = this.format;
-		fmt.onchange = () => (this.format = fmt.value as Format);
+		// Cursor and "MP3 too" only mean something when there is video.
+		const paintFormat = () => { cursor.toggle(this.format !== "mp3"); mp3Too.toggle(this.format !== "mp3"); };
+		fmt.onchange = () => { this.format = fmt.value as Format; paintFormat(); this.refresh(); };
+		paintFormat();
 		this.helperNote = contentEl.createDiv("cap-sort-helper-note");
 
 		const footer = contentEl.createDiv("cap-sort-footer");
@@ -138,7 +141,7 @@ export class PickerModal extends Modal {
 		}
 	}
 
-	private toggle(parent: HTMLElement, label: string, [on, off]: [string, string], value: boolean, onChange: (v: boolean) => void) {
+	private toggle(parent: HTMLElement, label: string, [on, off]: [string, string], value: boolean, onChange: (v: boolean) => void): HTMLButtonElement {
 		const b = iconButton(parent, value ? on : off, label, "cap-sort-toggle");
 		const paint = () => {
 			b.toggleClass("is-on", value);
@@ -147,6 +150,7 @@ export class PickerModal extends Modal {
 		};
 		b.onclick = () => { value = !value; paint(); onChange(value); };
 		paint();
+		return b;
 	}
 
 	private select(s: Source | undefined) {
@@ -157,13 +161,16 @@ export class PickerModal extends Modal {
 
 	/** One place decides whether Start is allowed and what the footer says. */
 	private refresh(regionHint?: string) {
-		const needHelper = !this.showCursor && !this.helper.exists();
+		const audioOnly = this.format === "mp3";
+		const needHelper = !audioOnly && !this.showCursor && !this.helper.exists();
+		const noAudio = audioOnly && !this.mic && !this.systemAudio;
 		this.helperNote.empty();
 		if (needHelper) this.helperPrompt();
 		const hasRegion = !!this.rect && !!this.preview;
-		const ready = !!this.picked && (this.tab !== "region" || hasRegion) && !needHelper;
+		const ready = !!this.picked && (this.tab !== "region" || hasRegion) && !needHelper && !noAudio;
 		this.recordBtn.disabled = !ready;
-		if (needHelper) this.hint.setText("Download the helper to record without the cursor.");
+		if (noAudio) this.hint.setText("Turn on the microphone or system audio to record an MP3.");
+		else if (needHelper) this.hint.setText("Download the helper to record without the cursor.");
 		else if (!this.picked) this.hint.setText(HINT[this.tab]);
 		else if (this.tab === "region") this.hint.setText(regionHint ?? "Drag over the area to record.");
 		else this.hint.setText(`Ready: ${this.picked.name}`);
