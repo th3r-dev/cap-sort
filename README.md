@@ -23,6 +23,7 @@ The [project site](https://th3r-dev.github.io/cap-sort/) has a working copy of t
 - Video is capped at 1920×1200. **MP4** (the default) uses H.264, which runs on the hardware encoder: on 1080p screen content it took about a quarter of the CPU that AV1 did, so hour-long recordings don't heat the machine up. Audio is AAC at 128 kbps, and it plays in almost any player. **WebM** uses AV1 when available (VP9 or VP8 otherwise) with Opus audio at 64 kbps. It's encoded on the CPU and can come out smaller.
 - Files are saved as `Recordings/cap-YYYYMMDD-HHmmss.mp4` (or `.webm`; the folder is configurable) and inserted as `![[…]]` at your cursor.
 - Recordings are written to disk every second while they run, so memory use stays flat and stopping is instant, even after three hours. If Obsidian crashes or is force-closed mid-recording, the next start finishes the file and puts it in your recordings folder; at most the last second or two is lost.
+- Pick **MP3 (audio only)** as the format to record just the microphone and/or system audio, with no video encoded: `Recordings/cap-YYYYMMDD-HHmmss.mp3` (128 kbps stereo). You still pick a screen, because system audio comes through screen capture.
 - Turn on **MP3 too** and the recording is split: a silent video and an MP3 of the audio (128 kbps stereo), saved together as `Recordings/cap-YYYYMMDD-HHmmss/cap-YYYYMMDD-HHmmss.mp4` and `….mp3`. Both are embedded.
 - While recording, a red timer sits in the status bar. Click it to stop. Hover it, or the ribbon icon, to see a live preview of what is being recorded.
 
@@ -30,7 +31,7 @@ The [project site](https://th3r-dev.github.io/cap-sort/) has a working copy of t
 
 1. Click the camera icon in the left ribbon, or run **cap-sort: Start recording…** from the command palette.
 2. Choose **Screen**, **Window** or **Region**, then pick a source.
-3. Set **Cursor**, **Microphone**, **System audio**, **MP3 too** and the format (MP4 or WebM). The defaults come from the plugin settings.
+3. Set **Cursor**, **Microphone**, **System audio**, **MP3 too** and the format (MP4, WebM or MP3). With MP3, Cursor and MP3 too are hidden. The defaults come from the plugin settings.
 4. Click **Start recording**. To stop, click the red timer in the status bar, click the ribbon icon again, or run **cap-sort: Stop recording**.
 
 ### macOS permissions

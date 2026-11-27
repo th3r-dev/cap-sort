@@ -108,3 +108,17 @@ void test("a failed write is reported once and finish() refuses, leaving the fil
 	await assert.rejects(t.finish(10));
 	assert.equal(errors.length, 1);
 });
+
+void test("MP3 format: the audio is the recording, saved flat and recovered after a crash", async () => {
+	const v = vault();
+	const t = await TempRecording.start(v.adapter, v.patch, TMP, { base: "cap-8", folder: "R", format: "mp3", mp3: false, startedAt: 0 });
+	t.writeAudio(new Uint8Array([0xff, 0xfb, 1]));
+	t.writeAudio(new Uint8Array([2]));
+	assert.deepEqual(await t.finish(), ["R/cap-8.mp3"]);
+	assert.deepEqual([...fs.readFileSync(v.abs("R/cap-8.mp3"))], [0xff, 0xfb, 1, 2]);
+
+	const c = await TempRecording.start(v.adapter, v.patch, TMP, { base: "cap-9", folder: "R", format: "mp3", mp3: false, startedAt: 0 });
+	c.writeAudio(new Uint8Array([0xff, 0xfb]));
+	await settled(); // crash
+	assert.deepEqual(await recover(v.adapter, v.patch, TMP), ["R/cap-9.mp3"]);
+});

@@ -115,6 +115,7 @@ async function finalize(adapter: DataAdapter, patch: Patch, dir: string, s: Temp
 	return moves.map(([, to]) => to);
 }
 
+// With format "mp3" both are the same file: the MP3 is the recording.
 const paths = (dir: string, s: TempState) => ({ video: `${dir}/${s.base}.${s.format}`, audio: `${dir}/${s.base}.mp3` });
 
 /** appendBinary wants an ArrayBuffer of exactly these bytes, not a view into a bigger one. */
