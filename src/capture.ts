@@ -11,6 +11,8 @@ export interface CaptureOptions {
 	helper?: string;
 	rect?: Rect;
 	preview?: Size;
+	/** MP3 format: no video is encoded, so none is captured beyond what system audio needs. */
+	audioOnly?: boolean;
 }
 
 export interface Capture {
@@ -39,15 +41,16 @@ export async function openCapture(remote: Remote, src: Source, o: CaptureOptions
 	const warnings: string[] = [];
 	const stop = () => cleanups.splice(0).forEach((f) => f());
 	try {
-		// Chromium gives us system audio, and the video too unless the helper takes over.
-		const display = !o.helper || o.systemAudio ? await displayMedia(remote, src, o) : null;
+		// Chromium gives us system audio, and the video too unless the helper takes over or there is no video.
+		const display = o.systemAudio || (!o.helper && !o.audioOnly) ? await displayMedia(remote, src, o) : null;
 		display?.getTracks().forEach((t) => cleanups.push(() => t.stop()));
 		if (o.systemAudio && !display?.getAudioTracks().length) warnings.push("System audio isn't available on this OS, so it won't be recorded.");
 
-		let video: Video = o.helper ? helperVideo(o.helper, src, o.fps) : chromiumVideo(display!.getVideoTracks()[0]);
+		let video: Video | null = o.audioOnly ? null : o.helper ? helperVideo(o.helper, src, o.fps) : chromiumVideo(display!.getVideoTracks()[0]);
 		if (o.helper) display?.getVideoTracks().forEach((t) => t.stop());
-		if (o.rect && o.preview) video = cropVideo(video, o.rect, o.preview);
-		cleanups.push(() => video.stop());
+		if (video && o.rect && o.preview) video = cropVideo(video, o.rect, o.preview);
+		const v = video;
+		if (v) cleanups.push(() => v.stop());
 
 		const audio: MediaStreamTrack[] = [...(display?.getAudioTracks() ?? [])];
 		if (o.mic) {
@@ -62,8 +65,11 @@ export async function openCapture(remote: Remote, src: Source, o: CaptureOptions
 		const mixed = mixAudio(audio);
 		if (mixed) cleanups.push(() => mixed.stop());
 
-		const size = await video.size;
-		return { stream: new MediaStream([video.track, ...(mixed ? [mixed.track] : [])]), size, ended: video.ended, warnings, stop };
+		// Audio only: the source still ends when its window closes, if getDisplayMedia was needed for system audio.
+		const shown = display?.getVideoTracks()[0];
+		const ended = v?.ended ?? (shown ? chromiumVideo(shown).ended : new Promise<void>(() => {}));
+		const size = v ? await v.size : { w: 0, h: 0 };
+		return { stream: new MediaStream([...(v ? [v.track] : []), ...(mixed ? [mixed.track] : [])]), size, ended, warnings, stop };
 	} catch (e) {
 		stop();
 		throw e;
@@ -80,7 +86,8 @@ async function displayMedia(remote: Remote, src: Source, o: CaptureOptions): Pro
 		cb({ video: { id: src.id, name: src.name }, ...(o.systemAudio ? { audio: "loopback" as const } : {}) }));
 	try {
 		return await navigator.mediaDevices.getDisplayMedia({
-			video: { width: { max: MAX.w }, height: { max: MAX.h }, frameRate: o.fps },
+			// Chromium hands over loopback audio only with a video track. For audio only, ask for the cheapest one.
+			video: o.audioOnly ? { width: { max: 320 }, height: { max: 200 }, frameRate: 1 } : { width: { max: MAX.w }, height: { max: MAX.h }, frameRate: o.fps },
 			// Voice processing ruins music and app sounds; leave system audio untouched.
 			audio: o.systemAudio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
 		});
@@ -164,6 +171,7 @@ function cropVideo(v: Video, rect: Rect, preview: Size): Video {
 /** MediaRecorder keeps only the first audio track, so mic + system audio are mixed into one. */
 function mixAudio(tracks: MediaStreamTrack[]): { track: MediaStreamTrack; stop(): void } | null {
 	if (!tracks.length) return null;
+	if (tracks.length === 1) return { track: tracks[0], stop: () => {} }; // nothing to mix: skip the AudioContext
 	const ctx = new AudioContext();
 	const dest = ctx.createMediaStreamDestination();
 	for (const t of tracks) ctx.createMediaStreamSource(new MediaStream([t])).connect(dest);
@@ -178,9 +186,15 @@ export interface Recording {
 /** Where encoded data goes as it's produced. Nothing is kept here, so memory doesn't grow with length. */
 export interface Sink { video(chunk: Blob): void; audio(bytes: Uint8Array): void }
 
-/** With `mp3` the audio goes to its own MP3 and the video is recorded silent. */
+/** With `mp3` the audio goes to its own MP3 and the video is recorded silent. Format "mp3" records the MP3 alone. */
 export async function record(c: Capture, fps: number, o: { format: Format; mp3: boolean }, sink: Sink): Promise<Recording> {
 	const audioTrack = c.stream.getAudioTracks()[0] as MediaStreamTrack | undefined;
+	if (o.format === "mp3") {
+		if (!audioTrack) throw new Error("there's no audio to record. Turn on the microphone or system audio.");
+		const tap = await mp3Tap(audioTrack, (b) => sink.audio(b));
+		const t0 = Date.now();
+		return { stop: async () => { tap.stop(); c.stop(); return Date.now() - t0; } };
+	}
 	const mp3 = o.mp3 && audioTrack ? await mp3Tap(audioTrack, (b) => sink.audio(b)) : null;
 	const stream = mp3 ? new MediaStream(c.stream.getVideoTracks()) : c.stream;
 	const audio = stream.getAudioTracks().length > 0;

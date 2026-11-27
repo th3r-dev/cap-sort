@@ -51,14 +51,20 @@ export default class CapSort extends Plugin {
 
 	private async start(remote: Remote, c: Choice) {
 		const helper = this.helper();
+		const audioOnly = c.format === "mp3";
 		const cap = await openCapture(remote, c.source, {
-			fps: this.settings.fps, mic: c.mic, systemAudio: c.systemAudio, rect: c.rect, preview: c.preview,
+			fps: this.settings.fps, mic: c.mic, systemAudio: c.systemAudio, rect: c.rect, preview: c.preview, audioOnly,
 			// Chromium always draws the cursor; only the helper can leave it out.
-			helper: !c.showCursor && helper.exists() ? helper.path : undefined,
+			helper: !audioOnly && !c.showCursor && helper.exists() ? helper.path : undefined,
 		});
 		cap.warnings.forEach((w) => new Notice(w));
-		const mp3 = c.mp3 && cap.stream.getAudioTracks().length > 0;
-		if (c.mp3 && !mp3) new Notice("No audio to save as MP3: the microphone and system audio are both off.");
+		const hasAudio = cap.stream.getAudioTracks().length > 0;
+		if (audioOnly && !hasAudio) {
+			cap.stop();
+			throw new Error("there's no audio to record. Turn on the microphone or system audio.");
+		}
+		const mp3 = !audioOnly && c.mp3 && hasAudio; // "MP3 too" splits a video; an MP3 recording is already one
+		if (!audioOnly && c.mp3 && !mp3) new Notice("No audio to save as MP3: the microphone and system audio are both off.");
 		const temp = await TempRecording.start(this.app.vault.adapter, this.patch, this.tmpDir(), {
 			base: fileName(new Date()), folder: normalizePath(this.settings.folder || "/"), format: c.format, mp3, startedAt: Date.now(),
 		});
@@ -82,9 +88,11 @@ export default class CapSort extends Plugin {
 		const time = this.statusEl.createSpan();
 		this.ribbon.addClass("cap-sort-recording");
 		this.ribbon.setAttr("aria-label", "Stop recording");
-		const video = new MediaStream(cap.stream.getVideoTracks()); // no audio, so the preview can't echo
-		this.hoverPreview(this.ribbon, video);
-		this.hoverPreview(this.statusEl, video);
+		if (!audioOnly) {
+			const video = new MediaStream(cap.stream.getVideoTracks()); // no audio, so the preview can't echo
+			this.hoverPreview(this.ribbon, video);
+			this.hoverPreview(this.statusEl, video);
+		}
 		const tick = () => time.setText(`REC ${formatElapsed(Date.now() - t0)}`);
 		tick();
 		this.timer = window.setInterval(tick, 1000);
@@ -192,8 +200,8 @@ class CapSortSettings extends PluginSettingTab {
 			{ name: "Show cursor by default", desc: "You can still change it in the picker before each recording.", control: { type: "toggle", key: "showCursor", defaultValue: DEFAULTS.showCursor } },
 			{ name: "Record microphone", desc: "On by default. You can change it in the picker too.", control: { type: "toggle", key: "mic", defaultValue: DEFAULTS.mic } },
 			{ name: "Record system audio", desc: "Sound from apps. Works on macOS 13+ and Windows.", control: { type: "toggle", key: "systemAudio", defaultValue: DEFAULTS.systemAudio } },
-			{ name: "Format", desc: "MP4 (H.264) uses the hardware encoder: far less CPU on long recordings, and it plays everywhere. WebM (AV1) gives smaller files but works the CPU harder. You can change it in the picker too.", control: { type: "dropdown", key: "format", options: FORMATS, defaultValue: DEFAULTS.format } },
-			{ name: "Also save audio as MP3", desc: "Splits each recording into a silent video and an MP3, saved together in a folder named after the recording.", control: { type: "toggle", key: "mp3", defaultValue: DEFAULTS.mp3 } },
+			{ name: "Format", desc: "MP4 (H.264) uses the hardware encoder: far less CPU on long recordings, and it plays everywhere. WebM (AV1) gives smaller files but works the CPU harder. MP3 records audio only, no video. You can change it in the picker too.", control: { type: "dropdown", key: "format", options: FORMATS, defaultValue: DEFAULTS.format } },
+			{ name: "Also save audio as MP3", desc: "Splits each video recording into a silent video and an MP3, saved together in a folder named after the recording. Not needed with the MP3 format.", control: { type: "toggle", key: "mp3", defaultValue: DEFAULTS.mp3 } },
 			{ name: "Frame rate", control: { type: "dropdown", key: "fps", options: { "15": "15 fps", "30": "30 fps", "60": "60 fps" }, defaultValue: String(DEFAULTS.fps) } },
 			{ name: "Embed in active note", desc: "Insert ![[recording]] at the cursor when you stop.", control: { type: "toggle", key: "embed", defaultValue: DEFAULTS.embed } },
 			{

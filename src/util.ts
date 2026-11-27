@@ -48,14 +48,16 @@ export function fileName(d: Date): string {
 	return `cap-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-export type Format = "webm" | "mp4";
-export const FORMATS: Record<Format, string> = { webm: "WebM", mp4: "MP4" };
+/** "mp3" records audio only: no video track is encoded. */
+export type Format = "webm" | "mp4" | "mp3";
+export type VideoFormat = Exclude<Format, "mp3">;
+export const FORMATS: Record<Format, string> = { mp4: "MP4", webm: "WebM", mp3: "MP3 (audio only)" };
 
 /**
  * WebM: smallest files first (AV1 beats VP9 on quality per byte, VP8 last). MP4: H.264 + AAC first, the pair
  * every player opens. "" when nothing fits.
  */
-export function pickMimeType(isSupported: (t: string) => boolean, audio: boolean, format: Format = "webm"): string {
+export function pickMimeType(isSupported: (t: string) => boolean, audio: boolean, format: VideoFormat = "webm"): string {
 	const pairs = format === "mp4"
 		? [["avc1", "mp4a.40.2"], ["avc1", "opus"], ["vp9", "opus"]]
 		: [["av01", "opus"], ["vp9", "opus"], ["vp8", "opus"]];
@@ -180,7 +182,15 @@ export function webmDuration(ms: number, scale: number): Uint8Array {
 
 /** lamejs hands back a reused Int8Array (its typings say Uint8Array): copy it out as bytes. */
 const bytes = (a: ArrayBufferView) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength).slice();
-const toInt16 = (f: Float32Array) => Int16Array.from(f, (v) => clamp(v, -1, 1) * (v < 0 ? 0x8000 : 0x7fff));
+/** Plain loop: Int16Array.from with a map callback runs a function call per sample, ~96k times a second. */
+function toInt16(f: Float32Array): Int16Array {
+	const out = new Int16Array(f.length);
+	for (let i = 0; i < f.length; i++) {
+		const v = f[i] < -1 ? -1 : f[i] > 1 ? 1 : f[i];
+		out[i] = v * (v < 0 ? 0x8000 : 0x7fff);
+	}
+	return out;
+}
 
 /** "Medium" quality for screen content: 0.025 bits per pixel per frame, kept between 250 kbps and 2.5 Mbps. */
 export function videoBitrate(size: Size, fps: number): number {
