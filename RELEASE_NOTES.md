@@ -1,5 +1,5 @@
-Audio-only recording and a lighter audio path.
+A Refresh button in the picker and tidier buttons.
 
-- **MP3 (audio only)**: a third format next to MP4 and WebM. It records the microphone and/or system audio straight to `Recordings/cap-….mp3` (128 kbps stereo), with no video encoded. You still pick a screen, because system audio comes through screen capture. With the microphone only, no screen is captured at all.
-- With MP3 picked, the Cursor and MP3 too toggles are hidden, and Start stays off until the microphone or system audio is on.
-- When there's only one audio source, cap-sort no longer runs an extra audio mixer, and MP3 encoding does less work per sample.
+- **Refresh**: at the top right of the picker, next to the Screen, Window and Region tabs. It reloads the list, so a window you opened after the picker shows up without closing and reopening it.
+- **Choose another screen** (in Region) is now a quiet text button that lines up with the screen still, instead of a grey block.
+- The Cursor, Microphone, System audio and MP3 too toggles now look the way they were meant to: outlined when off, filled when on. Obsidian's own button style was overriding them.
