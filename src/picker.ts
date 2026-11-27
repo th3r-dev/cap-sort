@@ -34,6 +34,8 @@ const MAC_PRIVACY = "x-apple.systempreferences:com.apple.preference.security?Pri
 
 export class PickerModal extends Modal {
 	private tab: Tab = "screen";
+	/** Bumped on every load, so a slow, older list never replaces a newer one. */
+	private loads = 0;
 	private picked?: Source;
 	private rect?: Rect;
 	private preview?: Size;
@@ -58,13 +60,18 @@ export class PickerModal extends Modal {
 		this.modalEl.addClass("cap-sort-modal");
 		const { contentEl } = this;
 
-		const tabs = contentEl.createDiv({ cls: "cap-sort-tabs", attr: { role: "tablist", "aria-label": "What to record" } });
+		const toolbar = contentEl.createDiv("cap-sort-toolbar");
+		const tabs = toolbar.createDiv({ cls: "cap-sort-tabs", attr: { role: "tablist", "aria-label": "What to record" } });
 		for (const [t, label, icon] of TABS) {
 			const b = iconButton(tabs, icon, label);
 			b.setAttrs({ role: "tab", "aria-label": label });
 			b.onclick = () => void this.show(t);
 			this.tabEls.set(t, b);
 		}
+		// New windows, closed windows, a screen plugged in: the list is a snapshot, so let it be retaken.
+		const refresh = iconButton(toolbar, "refresh-cw", "Refresh", "cap-sort-quiet");
+		refresh.setAttr("aria-label", "Refresh the list of screens and windows");
+		refresh.onclick = () => void this.show(this.tab);
 
 		this.body = contentEl.createDiv({ cls: "cap-sort-body", attr: { role: "tabpanel" } });
 
@@ -105,6 +112,7 @@ export class PickerModal extends Modal {
 			b.toggleClass("is-active", t === tab);
 			b.setAttr("aria-selected", String(t === tab));
 		});
+		const load = ++this.loads;
 		this.select(undefined);
 		this.body.empty();
 
@@ -118,10 +126,10 @@ export class PickerModal extends Modal {
 		try {
 			sources = await listSources(this.remote, kind, tab === "window" ? { width: 400, height: 250 } : { width: 1280, height: 800 });
 		} catch (e) {
-			if (this.tab === tab) this.errorState(`Couldn't list ${kind}s: ${errText(e)}`);
+			if (load === this.loads) this.errorState(`Couldn't list ${kind}s: ${errText(e)}`);
 			return;
 		}
-		if (this.tab !== tab) return; // switched tabs while loading
+		if (load !== this.loads) return; // switched tabs or refreshed while loading
 		this.body.empty();
 		if (!sources.length) return this.errorState(kind === "window" ? "No open windows to record." : "No screens found.");
 
@@ -215,7 +223,7 @@ export class PickerModal extends Modal {
 	/** Swap the grid for a big still of the screen and let the user drag a rectangle on it. */
 	private regionEditor(s: Source) {
 		this.body.empty();
-		const back = iconButton(this.body, "arrow-left", "Choose another screen", "cap-sort-back");
+		const back = iconButton(this.body, "arrow-left", "Choose another screen", "cap-sort-quiet cap-sort-back");
 		back.onclick = () => void this.show("region");
 		this.refresh();
 

@@ -7,9 +7,22 @@
 .cap-sort-btn-icon { display: inline-flex; flex-shrink: 0; }
 .cap-sort-btn-icon svg { width: var(--icon-s); height: var(--icon-s); }
 
+/*
+ * Obsidian styles buttons with button:not(.clickable-icon), which outranks a single class.
+ * Two classes (.cap-sort-btn + one more) are needed for these overrides to apply.
+ */
+
+/* Tabs on the left, Refresh on the right. */
+.cap-sort-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--size-4-2); margin-bottom: var(--size-4-4); }
+
+/* Quiet buttons (Refresh, back): no fill until hovered, so they don't compete with Start. */
+.cap-sort-btn.cap-sort-quiet { background: transparent; box-shadow: none; color: var(--text-muted); padding-inline: var(--size-4-2); }
+.cap-sort-btn.cap-sort-quiet:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.cap-sort-btn.cap-sort-quiet:focus-visible { box-shadow: 0 0 0 2px var(--background-modifier-border-focus); }
+
 /* Segmented tabs: quiet, so "Start recording" stays the only accent. */
 .cap-sort-tabs {
-	display: inline-flex; gap: 2px; padding: 2px; margin-bottom: var(--size-4-4);
+	display: inline-flex; gap: 2px; padding: 2px;
 	background: var(--background-modifier-hover); border-radius: var(--radius-m);
 }
 .cap-sort-tabs button { background: transparent; box-shadow: none; color: var(--text-muted); }
@@ -43,7 +56,8 @@
 .cap-sort-actions { display: flex; flex-wrap: wrap; gap: var(--size-4-2); justify-content: center; margin-top: var(--size-4-3); }
 
 /* Region editor */
-.cap-sort-back { margin-bottom: var(--size-4-2); background: transparent; box-shadow: none; color: var(--text-accent); padding-inline: 0; }
+/* Pulled left by its own padding, so the arrow lines up with the still below. */
+.cap-sort-btn.cap-sort-back { display: flex; margin: 0 0 var(--size-4-2) calc(-1 * var(--size-4-2)); }
 .cap-sort-region { position: relative; display: inline-block; max-width: 100%; overflow: hidden; border-radius: var(--radius-s); cursor: crosshair; user-select: none; touch-action: none; }
 .cap-sort-region img { display: block; max-width: 100%; max-height: 46vh; }
 /* The shadow dims everything outside the selection; the wrapper clips it. */
@@ -54,9 +68,9 @@
 	display: flex; flex-wrap: wrap; gap: var(--size-4-2);
 	margin-top: var(--size-4-4); padding-top: var(--size-4-3); border-top: 1px solid var(--background-modifier-border);
 }
-.cap-sort-toggle { background: transparent; box-shadow: none; border: 1px solid var(--background-modifier-border); color: var(--text-muted); }
-.cap-sort-toggle:hover { color: var(--text-normal); border-color: var(--background-modifier-border-hover); }
-.cap-sort-toggle.is-on { color: var(--text-normal); background: var(--background-modifier-hover); border-color: transparent; }
+.cap-sort-btn.cap-sort-toggle { background: transparent; box-shadow: none; border: 1px solid var(--background-modifier-border); color: var(--text-muted); }
+.cap-sort-btn.cap-sort-toggle:hover { color: var(--text-normal); border-color: var(--background-modifier-border-hover); }
+.cap-sort-btn.cap-sort-toggle.is-on { color: var(--text-normal); background: var(--background-modifier-hover); border-color: transparent; }
 .cap-sort-toggle.is-on .cap-sort-btn-icon { color: var(--interactive-accent); }
 
 .cap-sort-helper-note:empty { display: none; }
